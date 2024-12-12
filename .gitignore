@@ -1,0 +1,13 @@
+# Python関連
+venv/
+__pycache__/
+*.pyc
+
+# 環境設定ファイル
+.env
+.env.local
+*.log
+
+# OS固有のファイル
+.DS_Store
+Thumbs.db
