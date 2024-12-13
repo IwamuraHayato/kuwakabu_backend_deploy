@@ -23,7 +23,7 @@ from sqlalchemy import distinct
 
 app = Flask(__name__)
 # CORS(app)
-CORS(app, resources={r"/*": {"origins": "http://tech0-gen-8-step3-app-node-16.azurewebsites.net"}}) # 開発用：3000番ポートからのすべてのオリジンを許可
+CORS(app, resources={r"/*": {"origins": "http://localhost:3000"}})# 開発用：3000番ポートからのすべてのオリジンを許可
 
 app.config['SECRET_KEY'] = os.urandom(24)
 
@@ -384,3 +384,83 @@ def get_post(post_id):
         return jsonify({'error': str(e)}), 500
     finally:
         session.close()
+
+########### Yoshiki 追加（投稿）####################
+@app.route("/api/posts", methods=["POST"])
+def create_post():
+    data = request.form
+    files = request.files
+    print("Received data:", data)
+
+    if not data.get("collectionDate") or not data.get("collectionPlace"):
+        return jsonify({"error": "Collection date and place are required"}), 400
+
+    try:
+        with crud.session_scope() as session:
+            # Posts テーブルへの挿入データ
+            collected_at = datetime.strptime(data.get("collectionDate"), "%Y-%m-%dT%H:%M")
+            current_time = datetime.now()
+            
+            # 1. Posts テーブルへの挿入
+            post_data = {
+                "user_id": 1,  # 仮のユーザーID
+                "description": data.get("memo"),
+                "collected_at": data.get("collectionDate"),
+                "created_at": datetime.now(),
+                "updated_at": datetime.now(),
+            }
+            session.execute(insert(mymodels.Posts).values(post_data))
+            post_id = crud.get_last_inserted_id(session, mymodels.Posts)  # 修正箇所
+
+            # 2. Images テーブルへの挿入
+            for key in files:
+                file = files[key]
+                file_path = os.path.join(UPLOAD_FOLDER, file.filename)
+                os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+                file.save(file_path)
+
+                image_data = {
+                    "post_id": post_id,
+                    "image_url": file_path,
+                }
+                session.execute(insert(mymodels.Images).values(image_data))
+
+            # 3. Location テーブルへの挿入
+            location_data = {
+                "name": data.get("collectionPlace"),
+                "latitude": None,
+                "longitude": None,
+                "post_id": post_id,
+            }
+            session.execute(insert(mymodels.Location).values(location_data))
+
+            # 4. Environment テーブルへの挿入
+            environment_data = {
+                "post_id": post_id,
+                "whether": data.get("weather"),
+                "temperature": float(data.get("temperature")),
+                "is_restricted_area": data.get("forbiddenArea") == "該当する",
+                "crowd_level": {"少ない": 1, "普通": 2, "多い": 3}.get(data.get("crowdLevel"), None),
+                "free_memo": data.get("memo"),
+            }
+            session.execute(insert(mymodels.Environment).values(environment_data))
+
+            # 5. SpeciesInfo テーブルへの挿入
+            species_list = json.loads(data.get("rows"))  # rows を JSON としてデコード
+            for species in species_list:
+                species_data = {
+                    "post_id": post_id,
+                    "species_other": species["type"],
+                    "gender": species["gender"],
+                    "count": int(species["count"]),
+                    "max_size": float(species["maxSize"]),
+                }
+                session.execute(insert(mymodels.SpeciesInfo).values(species_data))
+
+        return jsonify({"message": "投稿が成功しました！"}), 201
+
+    except Exception as e:
+        print(f"エラー: {e}")
+        return jsonify({"error": f"投稿に失敗しました: {str(e)}"}), 500
+
+########Yoshiki最終行########
