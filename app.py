@@ -23,7 +23,7 @@ from sqlalchemy import distinct
 
 app = Flask(__name__)
 # CORS(app)
-CORS(app, resources={r"/*": {"origins": "http://localhost:3000"}}) # 開発用：3000番ポートからのすべてのオリジンを許可
+CORS(app, resources={r"/*": {"origins": "http://tech0-gen-8-step3-app-node-16.azurewebsites.net"}}) # 開発用：3000番ポートからのすべてのオリジンを許可
 
 app.config['SECRET_KEY'] = os.urandom(24)
 
