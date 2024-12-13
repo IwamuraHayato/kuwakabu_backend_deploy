@@ -1,5 +1,4 @@
 from flask import Flask, request, jsonify
-from flask_login import UserMixin, LoginManager
 from flask_cors import CORS
 from db_control import crud, mymodels
 from db_control.connect import engine
@@ -27,9 +26,6 @@ app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "http://localhost:3000"}}) # 開発用：3000番ポートからのすべてのオリジンを許可
 
 app.config['SECRET_KEY'] = os.urandom(24)
-
-login_manager = LoginManager()
-login_manager.init_app(app)
 
 UPLOAD_FOLDER = './images/post_images/'
 
