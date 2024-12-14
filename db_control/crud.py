@@ -118,3 +118,41 @@ def mydelete(mymodel, customer_id):
     # セッションを閉じる
     session.close()
     return customer_id + " is deleted"
+
+# ユーザー認証処理
+def authenticate_user(user_id: int, password: str):
+    """
+    ユーザーIDとパスワードで認証を行う関数
+    :param user_id: 認証対象のユーザーID
+    :param password: 認証対象のパスワード
+    :return: 認証結果（成功時はユーザー情報、失敗時はNone）
+    """
+    # セッションを構築
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    try:
+        # ユーザーをデータベースから取得
+        query = select(Users).where(Users.id == user_id)
+        user = session.execute(query).scalar_one_or_none()
+        if not user:
+            return {"success": False, "message": "ユーザーが見つかりません"}
+        # パスワードが一致するか確認
+        if user.password != password:
+            return {"success": False, "message": "パスワードが間違っています"}
+        # 認証成功時のレスポンス
+        return {
+            "success": True,
+            "user": {
+                "id": user.id,
+                "name": user.name,
+                "collection_start_at": user.collection_start_at,
+                "created_at": user.created_at,
+                "updated_at": user.updated_at,
+            },
+        }
+    except Exception as e:
+        print(f"エラー: {e}")
+        return {"success": False, "message": "内部エラーが発生しました"}
+    finally:
+        session.close()  # セッションを必ず閉じる
