@@ -2,7 +2,8 @@
 # uname() error回避
 import platform
 print("platform", platform.uname())
- 
+
+import uuid #yoshiki追加
 
 from sqlalchemy import create_engine, insert, delete, update, select
 import sqlalchemy
@@ -12,7 +13,10 @@ import pandas as pd
 
 from db_control.connect import engine
 from db_control.mymodels import *
- 
+
+from contextlib import contextmanager #yoshiki追加
+from db_control.connect import engine #yoshiki追加
+from sqlalchemy.sql import text  # text をインポート#yoshiki追加
 
 def myinsert(mymodel, values):
     # session構築
@@ -118,3 +122,29 @@ def mydelete(mymodel, customer_id):
     # セッションを閉じる
     session.close()
     return customer_id + " is deleted"
+
+# Yoshiki 追加データベースセッションの管理用コンテキストマネージャ
+@contextmanager
+def session_scope():
+    """データベースセッションを管理するためのコンテキストマネージャ"""
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    try:
+        yield session  # セッションを呼び出し元に返す
+        session.commit()  # トランザクションをコミット
+    except Exception as e:
+        session.rollback()  # エラー発生時にロールバック
+        raise e  # エラーを再スロー
+    finally:
+        session.close()  # セッションを閉じる
+
+def get_last_inserted_id(session, model):
+    """指定されたモデルに対する最後の挿入 ID を取得"""
+    try:
+        # ID を取得（PostgreSQL や MySQL 用のコード）
+        result = session.execute(text("SELECT LAST_INSERT_ID()")).scalar()
+        return result
+    except Exception as e:
+        print(f"エラー: 最後の挿入 ID を取得できませんでした: {e}")
+        raise   
+# Yoshiki終了

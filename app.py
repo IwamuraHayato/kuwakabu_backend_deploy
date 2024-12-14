@@ -19,7 +19,9 @@ from sqlalchemy import text
 from sqlalchemy.sql import func  # funcをインポート
 import sqlalchemy  # sqlalchemy全体をインポート
 from sqlalchemy import distinct
-
+from sqlalchemy import insert #Yoshiki追加
+from db_control.crud import get_last_inserted_id #Yoshiki追加
+import uuid #Yoshiki追加
 
 app = Flask(__name__)
 # CORS(app)
@@ -392,70 +394,26 @@ def create_post():
     files = request.files
     print("Received data:", data)
 
+    # 必須フィールドのチェック
     if not data.get("collectionDate") or not data.get("collectionPlace"):
-        return jsonify({"error": "Collection date and place are required"}), 400
+        return jsonify({"error": "画像と採集日時と採集場所は必須です"}), 400
 
     try:
         with crud.session_scope() as session:
-            # Posts テーブルへの挿入データ
-            collected_at = datetime.strptime(data.get("collectionDate"), "%Y-%m-%dT%H:%M")
-            current_time = datetime.now()
-            
-            # 1. Posts テーブルへの挿入
-            post_data = {
-                "user_id": 1,  # 仮のユーザーID
-                "description": data.get("memo"),
-                "collected_at": data.get("collectionDate"),
-                "created_at": datetime.now(),
-                "updated_at": datetime.now(),
-            }
-            session.execute(insert(mymodels.Posts).values(post_data))
-            post_id = crud.get_last_inserted_id(session, mymodels.Posts)  # 修正箇所
+            # Posts テーブルへの挿入
+            post_id = insert_post(data, session)
 
-            # 2. Images テーブルへの挿入
-            for key in files:
-                file = files[key]
-                file_path = os.path.join(UPLOAD_FOLDER, file.filename)
-                os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-                file.save(file_path)
+            # Images テーブルへの挿入
+            save_images(files, post_id, session)
 
-                image_data = {
-                    "post_id": post_id,
-                    "image_url": file_path,
-                }
-                session.execute(insert(mymodels.Images).values(image_data))
+            # Location テーブルへの挿入
+            insert_location(data, post_id, session)
 
-            # 3. Location テーブルへの挿入
-            location_data = {
-                "name": data.get("collectionPlace"),
-                "latitude": None,
-                "longitude": None,
-                "post_id": post_id,
-            }
-            session.execute(insert(mymodels.Location).values(location_data))
+            # Environment テーブルへの挿入
+            insert_environment(data, post_id, session)
 
-            # 4. Environment テーブルへの挿入
-            environment_data = {
-                "post_id": post_id,
-                "whether": data.get("weather"),
-                "temperature": float(data.get("temperature")),
-                "is_restricted_area": data.get("forbiddenArea") == "該当する",
-                "crowd_level": {"少ない": 1, "普通": 2, "多い": 3}.get(data.get("crowdLevel"), None),
-                "free_memo": data.get("memo"),
-            }
-            session.execute(insert(mymodels.Environment).values(environment_data))
-
-            # 5. SpeciesInfo テーブルへの挿入
-            species_list = json.loads(data.get("rows"))  # rows を JSON としてデコード
-            for species in species_list:
-                species_data = {
-                    "post_id": post_id,
-                    "species_other": species["type"],
-                    "gender": species["gender"],
-                    "count": int(species["count"]),
-                    "max_size": float(species["maxSize"]),
-                }
-                session.execute(insert(mymodels.SpeciesInfo).values(species_data))
+            # SpeciesInfo テーブルへの挿入
+            insert_species_info(data, post_id, session)
 
         return jsonify({"message": "投稿が成功しました！"}), 201
 
@@ -463,4 +421,74 @@ def create_post():
         print(f"エラー: {e}")
         return jsonify({"error": f"投稿に失敗しました: {str(e)}"}), 500
 
-########Yoshiki最終行########
+
+def insert_post(data, session):
+    """Posts テーブルへのデータ挿入"""
+    post_data = {
+    "user_id": 1,  # 仮のユーザーID
+    "description": data.get("memo"),
+    "collected_at": datetime.strptime(data.get("collectionDate"), "%Y-%m-%dT%H:%M"),
+    "created_at": datetime.now(),
+    "updated_at": datetime.now(),
+    }
+    session.execute(insert(mymodels.Posts).values(post_data))
+
+    # 最後に挿入された ID を取得
+    post_id = get_last_inserted_id(session, mymodels.Posts)
+    return post_id
+
+
+def save_images(files, post_id, session):
+    """Images テーブルへのデータ挿入"""
+    for key in files:
+        file = files[key]
+        unique_filename = f"{uuid.uuid4()}_{file.filename}"
+        file_path = os.path.join(UPLOAD_FOLDER, unique_filename)
+        os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+        file.save(file_path)
+
+        image_data = {
+            "post_id": post_id,
+            "image_url": file_path,
+        }
+        session.execute(insert(mymodels.Images).values(image_data))
+
+
+def insert_location(data, post_id, session):
+    """Location テーブルへのデータ挿入"""
+    location_data = {
+        "name": data.get("collectionPlace"),
+        "latitude": None,  # Google Maps API で取得する場合、ここに処理を追加
+        "longitude": None,
+        "post_id": post_id,
+    }
+    session.execute(insert(mymodels.Location).values(location_data))
+
+
+def insert_environment(data, post_id, session):
+    """Environment テーブルへのデータ挿入"""
+    environment_data = {
+        "post_id": post_id,
+        "whether": data.get("weather"),
+        "temperature": float(data.get("temperature") or 0),  # None の場合は 0 に
+        "is_restricted_area": data.get("forbiddenArea") == "該当する",
+        "crowd_level": {"少ない": 1, "普通": 2, "多い": 3}.get(data.get("crowdLevel"), None),
+        "free_memo": data.get("memo"),
+    }
+    session.execute(insert(mymodels.Environment).values(environment_data))
+
+
+def insert_species_info(data, post_id, session):
+    """SpeciesInfo テーブルへのデータ挿入"""
+    species_list = json.loads(data.get("rows", "[]"))  # rows を JSON としてデコード
+    for species in species_list:
+        species_data = {
+            "post_id": post_id,
+            "species_other": species.get("type"),
+            "gender": species.get("gender"),
+            "count": int(species.get("count") or 0),  # None の場合は 0 に
+            "max_size": float(species.get("maxSize") or 0),  # None の場合は 0 に
+        }
+        session.execute(insert(mymodels.SpeciesInfo).values(species_data))
+
+##############Yoshiki最終行##############
