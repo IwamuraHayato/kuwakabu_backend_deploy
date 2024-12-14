@@ -1,31 +1,22 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from db_control import crud, mymodels
+from db_control.crud import authenticate_user, get_last_inserted_id
 from db_control.connect import engine
 import json
 import requests
 import os
 from datetime import datetime
 import logging
-# # import sqlite3
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import select, or_, and_
-from sqlalchemy import text
-from sqlalchemy.sql import func  # funcをインポート
-import sqlalchemy  # sqlalchemy全体をインポート
-from sqlalchemy import distinct
+from sqlalchemy import select, or_, and_, text, distinct, func, cast, insert
+from sqlalchemy.types import String
+import uuid
 
-from sqlalchemy import text
-from sqlalchemy.sql import func  # funcをインポート
-import sqlalchemy  # sqlalchemy全体をインポート
-from sqlalchemy import distinct
-from sqlalchemy import insert #Yoshiki追加
-from db_control.crud import get_last_inserted_id #Yoshiki追加
-import uuid #Yoshiki追加
 
 app = Flask(__name__)
-# CORS(app)
-CORS(app, resources={r"/*": {"origins": "http://localhost:3000"}})# 開発用：3000番ポートからのすべてのオリジンを許可
+CORS(app)
+# CORS(app, resources={r"/*": {"origins": "http://localhost:3000"}})# 開発用：3000番ポートからのすべてのオリジンを許可
 
 app.config['SECRET_KEY'] = os.urandom(24)
 
@@ -63,6 +54,31 @@ def create_user():
         return jsonify({"error": f"Database insert failed: {str(e)}"}), 500
 
     return jsonify({"message": "User created successfully"}), 201
+
+###############################
+# ユーザー照会
+###############################
+@app.route("/authenticate", methods=["POST"])
+def authenticate():
+    # リクエストボディの取得
+    data = request.json
+
+    # 必要なフィールドを取得
+    user_id = data.get("id")
+    password = data.get("password")
+
+    # 入力バリデーション
+    if not user_id or not password:
+        return jsonify({"success": False, "message": "IDとパスワードを入力してください"}), 400
+
+    # 認証関数の呼び出し
+    result = authenticate_user(user_id, password)
+
+    # 結果を返却
+    if result["success"]:
+        return jsonify(result), 200  # 認証成功
+    else:
+        return jsonify(result), 401  # 認証失敗
 
 ###############################
 # 新規追加箇所: マップ検索用
@@ -301,7 +317,13 @@ def get_post(post_id):
                 mymodels.Location.name.label("location_name"), 
                 mymodels.Location.latitude,
                 mymodels.Location.longitude,
-                func.group_concat(distinct(mymodels.Species.name)).label("species_data"),
+                func.group_concat(
+                    distinct(
+                        mymodels.Species.name+','+
+                        mymodels.SpeciesInfo.gender+','+
+                        cast(mymodels.SpeciesInfo.count, String)+','+
+                        cast(mymodels.SpeciesInfo.max_size, String)
+                        )).label("species_data"),
                 func.group_concat(distinct(mymodels.Method.name)).label("methods"),
                 mymodels.MethodInfo.method_other,
                 func.group_concat(distinct(mymodels.Tree.name)).label("trees"),
