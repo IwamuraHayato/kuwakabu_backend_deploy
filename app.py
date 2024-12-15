@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from db_control import crud, mymodels
 from db_control.crud import authenticate_user, get_last_inserted_id
@@ -34,6 +34,14 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %
 def index():
     return "<p>Flask top page!</p>"
 
+# 静的ファイル用エンドポイント
+@app.route('/static/images/<path:filename>')
+def serve_static_images(filename):
+    try:
+        return send_from_directory('images', filename)
+    except Exception as e:
+        logging.error(f"Error serving static file {filename}: {e}")
+        return jsonify({"success": False, "message": str(e)}), 500
 
 @app.route("/user", methods=['POST'])
 def create_user():
@@ -188,11 +196,6 @@ def get_posts():
 ###############################
 # マップ吹き出し用
 ###############################
-@app.route('/static/images/<path:filename>')
-def serve_static_images(filename):
-    return send_from_directory('images', filename)
-
-
 @app.route('/map/post/<int:post_id>', methods=['GET'])
 def get_post_details(post_id):
     session = SessionLocal()
@@ -350,19 +353,19 @@ def get_post(post_id):
                 mymodels.Environment.is_restricted_area,
                 mymodels.Environment.free_memo,
             )
-            .join(mymodels.Users, mymodels.Posts.user_id == mymodels.Users.id)
-            .join(mymodels.Location, mymodels.Posts.id == mymodels.Location.post_id)
-            .join(mymodels.SpeciesInfo, mymodels.Posts.id == mymodels.SpeciesInfo.post_id)
-            .join(mymodels.Species, mymodels.SpeciesInfo.species_id == mymodels.Species.id)
-            .join(mymodels.MethodInfo, mymodels.Posts.id == mymodels.MethodInfo.post_id)
-            .join(mymodels.Method, mymodels.MethodInfo.method_id == mymodels.Method.id)
-            .join(mymodels.TreeInfo, mymodels.Posts.id == mymodels.TreeInfo.post_id)
-            .join(mymodels.Tree, mymodels.TreeInfo.tree_id == mymodels.Tree.id)
-            .join(mymodels.Environment, mymodels.Posts.id == mymodels.Environment.post_id)
-            .join(mymodels.DangerousSpeciesInfo, mymodels.Posts.id == mymodels.DangerousSpeciesInfo.post_id)
-            .join(mymodels.DangerousSpecies, mymodels.DangerousSpeciesInfo.dangerous_species_id == mymodels.DangerousSpecies.id)
-            .join(mymodels.FacilityInfo, mymodels.Posts.id == mymodels.FacilityInfo.post_id)
-            .join(mymodels.Facility, mymodels.FacilityInfo.facility_id == mymodels.Facility.id)
+            .outerjoin(mymodels.Users, mymodels.Posts.user_id == mymodels.Users.id)
+            .outerjoin(mymodels.Location, mymodels.Posts.id == mymodels.Location.post_id)
+            .outerjoin(mymodels.SpeciesInfo, mymodels.Posts.id == mymodels.SpeciesInfo.post_id)
+            .outerjoin(mymodels.Species, mymodels.SpeciesInfo.species_id == mymodels.Species.id)
+            .outerjoin(mymodels.MethodInfo, mymodels.Posts.id == mymodels.MethodInfo.post_id)
+            .outerjoin(mymodels.Method, mymodels.MethodInfo.method_id == mymodels.Method.id)
+            .outerjoin(mymodels.TreeInfo, mymodels.Posts.id == mymodels.TreeInfo.post_id)
+            .outerjoin(mymodels.Tree, mymodels.TreeInfo.tree_id == mymodels.Tree.id)
+            .outerjoin(mymodels.Environment, mymodels.Posts.id == mymodels.Environment.post_id)
+            .outerjoin(mymodels.DangerousSpeciesInfo, mymodels.Posts.id == mymodels.DangerousSpeciesInfo.post_id)
+            .outerjoin(mymodels.DangerousSpecies, mymodels.DangerousSpeciesInfo.dangerous_species_id == mymodels.DangerousSpecies.id)
+            .outerjoin(mymodels.FacilityInfo, mymodels.Posts.id == mymodels.FacilityInfo.post_id)
+            .outerjoin(mymodels.Facility, mymodels.FacilityInfo.facility_id == mymodels.Facility.id)
             .where(mymodels.Posts.id == post_id)
             .group_by(
                 mymodels.Posts.id,
