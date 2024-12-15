@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none">
+            {/* 背景の円 */}
+            <circle cx="50" cy="50" r="50" fill="#E0E0E0" />
+            {/* 人型の頭 */}
+            <circle cx="50" cy="35" r="15" fill="#444444" />
+            {/* 人型の体 */}
+            <path d="M35 65c0-10 10-15 15-15s15 5 15 15v15H35V65z" fill="#444444" />
+          </svg>

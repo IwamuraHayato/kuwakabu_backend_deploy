@@ -13,6 +13,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy import select, or_, and_, text, distinct, func, cast, insert
 from sqlalchemy.types import String
 import uuid
+from flask import Flask, send_from_directory, abort
 
 app = Flask(__name__)
 CORS(app)
@@ -32,6 +33,24 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %
 def index():
     return "<p>Flask top page!</p>"
 
+# カレントディレクトリを取得
+BASE_DIR = os.getcwd()
+@app.route('/icon_images/<path:filename>')
+def serve_image(filename):
+    # 画像ディレクトリを指定
+    images_dir = os.path.join(BASE_DIR, 'images', 'icon_images')
+    # リクエストされたファイルの絶対パスを作成
+    requested_file_path = os.path.join(images_dir, filename)
+    # ファイルが存在しない場合、デフォルトの画像を返す
+    if not os.path.isfile(requested_file_path):
+        default_file_path = os.path.join(images_dir, 'user.svg')
+        if os.path.isfile(default_file_path):
+            return send_from_directory(images_dir, 'user.svg')
+        else:
+            abort(404)  # デフォルト画像すらない場合は 404 を返す
+
+    # リクエストされた画像が存在すればそれを返す
+    return send_from_directory(images_dir, filename)
 
 @app.route("/user", methods=['POST'])
 def create_user():
