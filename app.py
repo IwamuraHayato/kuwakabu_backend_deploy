@@ -8,6 +8,7 @@ import requests
 import os
 from datetime import datetime
 import logging
+import sqlalchemy
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import select, or_, and_, text, distinct, func, cast, insert
 from sqlalchemy.types import String
@@ -277,9 +278,17 @@ def get_user_posts():
             )
         )
 
-
+        # クエリの実行
         rows = session.execute(stmt).fetchall()
 
+        # デバッグ用: クエリ結果を出力
+        print("Query result:")
+        for row in rows:
+            print(row)  # 全体の行を出力
+            for key, value in row._mapping.items():
+                print(f"Field: {key}, Value: {value}, Type: {type(value)}")  # 各フィールドの型を確認
+
+        # 結果を整形
         result = [
             {
                 'id': row.id,
@@ -287,12 +296,13 @@ def get_user_posts():
                 'location_name': row.location_name,
                 'collected_at': row.collected_at.isoformat() if row.collected_at else None,
                 'description': row.description,
-                'user_icon': row.user_icon or '-',
+                'user_icon': row.user_icon.decode('utf-8') if isinstance(row.user_icon, bytes) else row.user_icon,  # デコードを追加
                 'species_name': row.species_name or '-'
             }
             for row in rows
         ]
         return jsonify(result)
+
     except sqlalchemy.exc.OperationalError as oe:
         print(f"Operational error: {oe}")
         return jsonify({'error': 'Database operational error'}), 500
@@ -301,6 +311,7 @@ def get_user_posts():
         return jsonify({'error': str(e)}), 500
     finally:
         session.close()
+
 
 @app.route('/post/<int:post_id>', methods=['GET'])
 def get_post(post_id):
