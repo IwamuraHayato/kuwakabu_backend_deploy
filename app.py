@@ -18,7 +18,10 @@ CORS(app)
 
 app.config['SECRET_KEY'] = os.urandom(24)
 
-UPLOAD_FOLDER = './images/post_images/'
+POST_UPLOAD_FOLDER = '/post_images/'
+DEFAULT_ICON_PATH = "icon_images/face-icon.svg"  # デフォルトアイコンのパス
+DEFAULT_POST_IMAGE_PATH = 'post_images/no-image-icon.svg'  # デフォルト採集記録画像のパス
+
 
 SessionLocal = sessionmaker(bind=engine)
 
@@ -185,18 +188,22 @@ def get_posts():
 ###############################
 # マップ吹き出し用
 ###############################
+@app.route('/static/images/<path:filename>')
+def serve_static_images(filename):
+    return send_from_directory('images', filename)
+
+
 @app.route('/map/post/<int:post_id>', methods=['GET'])
 def get_post_details(post_id):
     session = SessionLocal()
     try:
-        # 追加: images テーブルとの結合
         stmt = (
             select(
                 mymodels.Posts,
                 mymodels.Location,
                 mymodels.Species.name,
                 mymodels.Users,
-                mymodels.Images.image_url  # 修正: 正しいカラム名に変更
+                mymodels.Images.image_url
             )
             .join(mymodels.Location, mymodels.Posts.id == mymodels.Location.post_id)
             .join(mymodels.SpeciesInfo, mymodels.Posts.id == mymodels.SpeciesInfo.post_id, isouter=True)
@@ -204,41 +211,44 @@ def get_post_details(post_id):
             .join(mymodels.Users, mymodels.Posts.user_id == mymodels.Users.id, isouter=True)
             .join(mymodels.Images, and_(
                 mymodels.Images.post_id == mymodels.Posts.id,
-                mymodels.Images.position == 1  # position=1 の画像
-            ), isouter=True)  # isouter=True により、関連するレコードがなくてもエラーにならない
+                mymodels.Images.position == 1
+            ), isouter=True)
             .where(mymodels.Posts.id == post_id)
         )
 
         result = session.execute(stmt).all()
 
-        # 結果がない場合
         if not result:
             return jsonify({"success": False, "message": "Post not found"}), 404
 
-        # データの整形
-        post, location, species_name, user, image_url = result[0]  # image_url が None でも対応可能
+        post, location, species_name, user, image_url = result[0]
+
+        # レスポンスの生成
         response = {
             "id": post.id,
             "description": post.description,
-            # "collected_at": post.collected_at.isoformat() if post.collected_at else None,
             "collected_at": post.collected_at.strftime("%Y-%m-%d") if post.collected_at else None,
             "location": {
                 "name": location.name,
                 "latitude": location.latitude,
                 "longitude": location.longitude,
             },
-            "species_names": list(set([r[2] for r in result if r[2]])),  # 重複排除
+            "species_names": list(set([r[2] for r in result if r[2]])),
             "user": {
                 "name": user.name if user else "匿名",
-                "icon": user.icon if user and user.icon else "/src/face-icon.svg",  # デフォルトアイコンを返す
+                "icon": f"/static/images{user.icon}" if user and user.icon else f"/static/images/{DEFAULT_ICON_PATH}",
             },
-            "image_url": image_url if image_url else "/src/no-image-icon.svg"  # 画像がない場合は no-image画像 を返す
+            "image_url": f"/static/images{image_url}" if image_url else f"/static/images/{DEFAULT_POST_IMAGE_PATH}"
         }
 
         return jsonify(response)
+
+    except Exception as e:
+        logging.error(f"Error in get_post_details: {e}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
     finally:
         session.close()
-
 
 ######### がたろー mypage  #########
 
@@ -468,8 +478,8 @@ def save_images(files, post_id, session):
     for key in files:
         file = files[key]
         unique_filename = f"{uuid.uuid4()}_{file.filename}"
-        file_path = os.path.join(UPLOAD_FOLDER, unique_filename)
-        os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+        file_path = os.path.join(POST_UPLOAD_FOLDER, unique_filename)
+        os.makedirs(POST_UPLOAD_FOLDER, exist_ok=True)
         file.save(file_path)
 
         image_data = {
