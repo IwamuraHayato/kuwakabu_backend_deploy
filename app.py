@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, abort
 from flask_cors import CORS
 from db_control import crud, mymodels
 from db_control.crud import authenticate_user, get_last_inserted_id
@@ -8,6 +8,7 @@ import requests
 import os
 from datetime import datetime
 import logging
+import sqlalchemy
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import select, or_, and_, text, distinct, func, cast, insert
 from sqlalchemy.types import String
@@ -18,9 +19,11 @@ CORS(app)
 
 app.config['SECRET_KEY'] = os.urandom(24)
 
-POST_UPLOAD_FOLDER = '/post_images/'
+POST_UPLOAD_FOLDER = 'post_images/'
 DEFAULT_ICON_PATH = "icon_images/face-icon.svg"  # デフォルトアイコンのパス
 DEFAULT_POST_IMAGE_PATH = 'post_images/no-image-icon.svg'  # デフォルト採集記録画像のパス
+
+BASE_IMAGES_DIR = os.path.join(os.getcwd(), "images") # 画像フォルダのベースディレクトリ
 
 
 SessionLocal = sessionmaker(bind=engine)
@@ -34,14 +37,22 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %
 def index():
     return "<p>Flask top page!</p>"
 
-# 静的ファイル用エンドポイント
 @app.route('/static/images/<path:filename>')
 def serve_static_images(filename):
-    try:
-        return send_from_directory('images', filename)
-    except Exception as e:
-        logging.error(f"Error serving static file {filename}: {e}")
-        return jsonify({"success": False, "message": str(e)}), 500
+    """
+    指定された画像ファイルを返すエンドポイント。
+    ファイルが存在しない場合はデフォルト画像を返す。
+    """
+    requested_path = os.path.join(BASE_IMAGES_DIR, filename)
+    if os.path.isfile(requested_path):
+        return send_from_directory(BASE_IMAGES_DIR, filename)
+    else:
+        # ファイルが存在しない場合、デフォルト画像を返す
+        if "icon_images" in filename:
+            return send_from_directory(BASE_IMAGES_DIR, DEFAULT_ICON_PATH)
+        elif "post_images" in filename:
+            return send_from_directory(BASE_IMAGES_DIR, DEFAULT_POST_IMAGE_PATH)
+        abort(404)
 
 @app.route("/user", methods=['POST'])
 def create_user():
@@ -239,9 +250,9 @@ def get_post_details(post_id):
             "species_names": list(set([r[2] for r in result if r[2]])),
             "user": {
                 "name": user.name if user else "匿名",
-                "icon": f"/static/images{user.icon}" if user and user.icon else f"/static/images/{DEFAULT_ICON_PATH}",
+                "icon": f"/static/images/{user.icon}" if user and user.icon else f"/static/images/{DEFAULT_ICON_PATH}",
             },
-            "image_url": f"/static/images{image_url}" if image_url else f"/static/images/{DEFAULT_POST_IMAGE_PATH}"
+            "image_url": f"/static/images/{image_url}" if image_url else f"/static/images/{DEFAULT_POST_IMAGE_PATH}"
         }
 
         return jsonify(response)
@@ -293,9 +304,17 @@ def get_user_posts():
             )
         )
 
-
+        # クエリの実行
         rows = session.execute(stmt).fetchall()
 
+        # デバッグ用: クエリ結果を出力
+        print("Query result:")
+        for row in rows:
+            print(row)  # 全体の行を出力
+            for key, value in row._mapping.items():
+                print(f"Field: {key}, Value: {value}, Type: {type(value)}")  # 各フィールドの型を確認
+
+        # 結果を整形
         result = [
             {
                 'id': row.id,
@@ -303,12 +322,13 @@ def get_user_posts():
                 'location_name': row.location_name,
                 'collected_at': row.collected_at.isoformat() if row.collected_at else None,
                 'description': row.description,
-                'user_icon': row.user_icon or '-',
+                'user_icon': row.user_icon.decode('utf-8') if isinstance(row.user_icon, bytes) else row.user_icon,  # デコードを追加
                 'species_name': row.species_name or '-'
             }
             for row in rows
         ]
         return jsonify(result)
+
     except sqlalchemy.exc.OperationalError as oe:
         print(f"Operational error: {oe}")
         return jsonify({'error': 'Database operational error'}), 500
@@ -317,6 +337,7 @@ def get_user_posts():
         return jsonify({'error': str(e)}), 500
     finally:
         session.close()
+
 
 @app.route('/post/<int:post_id>', methods=['GET'])
 def get_post(post_id):
