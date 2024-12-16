@@ -25,8 +25,11 @@ def myinsert(mymodel, values):
 
     try:
         with session.begin():
-            session.execute(insert(mymodel).values(values))
-        return "inserted"
+            # INSERT 文を実行
+            result = session.execute(insert(mymodel).values(values))
+            # MySQL では lastrowid を使って挿入された ID を取得
+            new_id = result.lastrowid
+        return new_id  # 挿入された ID を返す
     except sqlalchemy.exc.IntegrityError as e:
         print(f"一意制約違反により、挿入に失敗しました: {e}")
         session.rollback()

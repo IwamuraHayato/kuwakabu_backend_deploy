@@ -8,10 +8,13 @@ import requests
 import os
 from datetime import datetime
 import logging
+import sqlalchemy
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import select, or_, and_, text, distinct, func, cast, insert
 from sqlalchemy.types import String
 import uuid
+from flask import Flask, send_from_directory, abort
+from sqlalchemy.exc import SQLAlchemyError
 
 app = Flask(__name__)
 CORS(app)
@@ -31,6 +34,32 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %
 def index():
     return "<p>Flask top page!</p>"
 
+# カレントディレクトリを取得
+BASE_DIR = os.getcwd()
+# 画像を提供するエンドポイント
+@app.route('/images/<folder>/<path:filename>')
+def serve_images(folder, filename):
+    """
+    images ディレクトリ内の任意のサブフォルダに対してアクセスを許可。
+    サブフォルダ名: icon_images, post_images
+    """
+    allowed_folders = ['icon_images', 'post_images']
+
+    if folder not in allowed_folders:
+        abort(403, description="Access to this directory is not allowed.")
+
+    images_dir = os.path.join(BASE_DIR, 'images', folder)
+    requested_file_path = os.path.join(images_dir, filename)
+
+    if not os.path.isfile(requested_file_path):
+        abort(404, description="Image not found.")
+
+    return send_from_directory(images_dir, filename)
+
+if __name__ == '__main__':
+    app.run(debug=True)
+
+
 
 @app.route("/user", methods=['POST'])
 def create_user():
@@ -46,12 +75,22 @@ def create_user():
     values["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     try:
-        crud.myinsert(mymodels.Users, values)
+        # 新しいユーザーをデータベースに挿入
+        new_user_id = crud.myinsert(mymodels.Users, values)  # 修正後の関数を呼び出す
+
+        # テスト用のパスワード（本番ではセキュアな方法を使用）
+        generated_password = "1234"  # ここは適宜変更可能
+
+        return jsonify({
+            "message": "User created successfully",
+            "user_id": new_user_id,  # 実際のユーザーIDを返す
+            "password": generated_password
+        }), 201
+
     except Exception as e:
         print(f"Database insert failed: {e}")
         return jsonify({"error": f"Database insert failed: {str(e)}"}), 500
 
-    return jsonify({"message": "User created successfully"}), 201
 
 ###############################
 # ユーザー照会
@@ -259,20 +298,24 @@ def get_user_posts():
             select(
                 mymodels.Posts.id,
                 mymodels.Users.name.label("user_name"),
+                mymodels.Users.collection_start_at,  # 追加: 採集開始日
                 mymodels.Location.name.label("location_name"),
                 mymodels.Posts.collected_at,
                 mymodels.Posts.description,
                 mymodels.Users.icon.label("user_icon"),
-                func.group_concat(func.coalesce(mymodels.Species.name, '不明').distinct()).label("species_name")
+                func.group_concat(func.coalesce(mymodels.Species.name, '不明').distinct()).label("species_name"),
+                func.group_concat(func.distinct(mymodels.Images.image_url)).label("image_urls")  
             )
             .join(mymodels.Users, mymodels.Posts.user_id == mymodels.Users.id)
             .join(mymodels.SpeciesInfo, mymodels.Posts.id == mymodels.SpeciesInfo.post_id)
             .join(mymodels.Species, mymodels.SpeciesInfo.species_id == mymodels.Species.id)
             .join(mymodels.Location, mymodels.Posts.id == mymodels.Location.post_id)
+            .outerjoin(mymodels.Images, mymodels.Posts.id == mymodels.Images.post_id)
             .where(mymodels.Users.id == user_id)
             .group_by(
                 mymodels.Posts.id,
                 mymodels.Users.name,
+                mymodels.Users.collection_start_at,  # 追加: グループ化に含める
                 mymodels.Location.name,
                 mymodels.Posts.collected_at,
                 mymodels.Posts.description,
@@ -280,22 +323,33 @@ def get_user_posts():
             )
         )
 
-
+        # クエリの実行
         rows = session.execute(stmt).fetchall()
 
+        # デバッグ用: クエリ結果を出力
+        print("Query result:")
+        for row in rows:
+            print(row)  # 全体の行を出力
+            for key, value in row._mapping.items():
+                print(f"Field: {key}, Value: {value}, Type: {type(value)}")  # 各フィールドの型を確認
+
+        # 結果を整形
         result = [
             {
                 'id': row.id,
                 'user_name': row.user_name,
+                'collection_start_at': row.collection_start_at.isoformat() if row.collection_start_at else None,  # 追加: フィールドを整形
                 'location_name': row.location_name,
                 'collected_at': row.collected_at.isoformat() if row.collected_at else None,
                 'description': row.description,
-                'user_icon': row.user_icon or '-',
-                'species_name': row.species_name or '-'
+                'user_icon': row.user_icon.decode('utf-8') if isinstance(row.user_icon, bytes) else row.user_icon,  # デコードを追加
+                'species_name': row.species_name or '-',
+                'image_urls': row.image_urls.split(',') if row.image_urls else []  # 画像URLをリストとして返す
             }
             for row in rows
         ]
         return jsonify(result)
+
     except sqlalchemy.exc.OperationalError as oe:
         print(f"Operational error: {oe}")
         return jsonify({'error': 'Database operational error'}), 500
@@ -304,6 +358,8 @@ def get_user_posts():
         return jsonify({'error': str(e)}), 500
     finally:
         session.close()
+
+
 
 @app.route('/post/<int:post_id>', methods=['GET'])
 def get_post(post_id):
