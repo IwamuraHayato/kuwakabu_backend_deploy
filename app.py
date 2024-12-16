@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, send_from_directory, abort ,request, jsonify
 from flask_cors import CORS
 from db_control import crud, mymodels
 from db_control.crud import authenticate_user, get_last_inserted_id
@@ -8,16 +8,16 @@ import requests
 import os
 from datetime import datetime
 import logging
+import sqlalchemy
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import select, or_, and_, text, distinct, func, cast, insert
 from sqlalchemy.types import String
+from sqlalchemy.exc import SQLAlchemyError
 import uuid
 import urllib.parse
 
-
-
 app = Flask(__name__)
-CORS(app) #全オリジンを許可
+CORS(app)
 
 app.config['SECRET_KEY'] = os.urandom(24)
 
@@ -34,6 +34,32 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %
 def index():
     return "<p>Flask top page!</p>"
 
+# カレントディレクトリを取得
+BASE_DIR = os.getcwd()
+# 画像を提供するエンドポイント
+@app.route('/images/<folder>/<path:filename>')
+def serve_images(folder, filename):
+    """
+    images ディレクトリ内の任意のサブフォルダに対してアクセスを許可。
+    サブフォルダ名: icon_images, post_images
+    """
+    allowed_folders = ['icon_images', 'post_images']
+
+    if folder not in allowed_folders:
+        abort(403, description="Access to this directory is not allowed.")
+
+    images_dir = os.path.join(BASE_DIR, 'images', folder)
+    requested_file_path = os.path.join(images_dir, filename)
+
+    if not os.path.isfile(requested_file_path):
+        abort(404, description="Image not found.")
+
+    return send_from_directory(images_dir, filename)
+
+if __name__ == '__main__':
+    app.run(debug=True)
+
+
 
 @app.route("/user", methods=['POST'])
 def create_user():
@@ -49,12 +75,22 @@ def create_user():
     values["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     try:
-        crud.myinsert(mymodels.Users, values)
+        # 新しいユーザーをデータベースに挿入
+        new_user_id = crud.myinsert(mymodels.Users, values)  # 修正後の関数を呼び出す
+
+        # テスト用のパスワード（本番ではセキュアな方法を使用）
+        generated_password = "1234"  # ここは適宜変更可能
+
+        return jsonify({
+            "message": "User created successfully",
+            "user_id": new_user_id,  # 実際のユーザーIDを返す
+            "password": generated_password
+        }), 201
+
     except Exception as e:
         print(f"Database insert failed: {e}")
         return jsonify({"error": f"Database insert failed: {str(e)}"}), 500
 
-    return jsonify({"message": "User created successfully"}), 201
 
 ###############################
 # ユーザー照会
@@ -82,7 +118,7 @@ def authenticate():
         return jsonify(result), 401  # 認証失敗
 
 ###############################
-# 新規追加箇所: マップ検索用
+# マップ検索用
 ###############################
 @app.route('/map/posts', methods=['GET'])
 def get_posts():
@@ -92,97 +128,102 @@ def get_posts():
 
     session = SessionLocal()
 
-    # PostsとLocationをJOIN
-    # SpeciesInfo, SpeciesをLEFT JOIN
-    stmt = (
-        select(mymodels.Posts, mymodels.Location, mymodels.Species.name)
-        .join(mymodels.Location, mymodels.Posts.id == mymodels.Location.post_id)
-        .join(mymodels.SpeciesInfo, mymodels.Posts.id == mymodels.SpeciesInfo.post_id, isouter=True)
-        .join(mymodels.Species, mymodels.SpeciesInfo.species_id == mymodels.Species.id, isouter=True)
-    )
-
-    # searchパラメータが指定されている場合はLIKE検索で絞り込み
-    if search:
-        like_pattern = f"%{search}%"
-        stmt = stmt.where(
-            or_(
-                mymodels.Location.name.like(like_pattern),
-                mymodels.Location.prefecture.like(like_pattern),
-                mymodels.Location.city.like(like_pattern),
-                mymodels.Posts.description.like(like_pattern),
-                mymodels.Species.name.like(like_pattern),
-                mymodels.Location.name.like(like_pattern),
-                mymodels.Location.prefecture.like(like_pattern),
-                mymodels.Location.city.like(like_pattern),
-                mymodels.Posts.description.like(like_pattern),
-                mymodels.Species.name.like(like_pattern)
-            )
-        )
-    # 投稿データを取得
-    results = session.execute(stmt).all()
-
-    # 最大のpost_idを取得
-    if search:
-        max_post_id = (
-            session.query(mymodels.Posts.id)
+    try:
+        # PostsとLocationをJOIN
+        # SpeciesInfo, SpeciesをLEFT JOIN
+        stmt = (
+            select(mymodels.Posts, mymodels.Location, mymodels.Species.name)
             .join(mymodels.Location, mymodels.Posts.id == mymodels.Location.post_id)
-            .filter(
-                or_(
-                    mymodels.Location.name.like(like_pattern),
-                    mymodels.Location.prefecture.like(like_pattern),
-                    mymodels.Location.city.like(like_pattern),
-                    mymodels.Posts.description.like(like_pattern),
-                    mymodels.Species.name.like(like_pattern),
-                    mymodels.Location.name.like(like_pattern),
-                    mymodels.Location.prefecture.like(like_pattern),
-                    mymodels.Location.city.like(like_pattern),
-                    mymodels.Posts.description.like(like_pattern),
-                    mymodels.Species.name.like(like_pattern)
+            .join(mymodels.SpeciesInfo, mymodels.Posts.id == mymodels.SpeciesInfo.post_id, isouter=True)
+            .join(mymodels.Species, mymodels.SpeciesInfo.species_id == mymodels.Species.id, isouter=True)
+        )
+
+        # searchパラメータが指定されている場合
+        if search:
+            search_terms = search.split()  # スペースで単語を分割
+            conditions = []  # 条件を格納するリスト
+
+            # 各単語で検索条件を作成
+            for term in search_terms:
+                like_pattern = f"%{term}%"
+                conditions.append(
+                    or_(
+                        mymodels.Location.name.like(like_pattern),
+                        mymodels.Location.prefecture.like(like_pattern),
+                        mymodels.Location.city.like(like_pattern),
+                        mymodels.Posts.description.like(like_pattern),
+                        mymodels.Species.name.like(like_pattern)
+                    )
                 )
+
+            # AND条件で全ての単語を満たすようにフィルタリング
+            stmt = stmt.where(and_(*conditions))
+
+        # 投稿データを取得
+        results = session.execute(stmt).all()
+
+        # 最大のpost_idを取得
+        if search:
+            max_post_id_query = (
+                session.query(mymodels.Posts.id)
+                .join(mymodels.Location, mymodels.Posts.id == mymodels.Location.post_id)
             )
-            .order_by(mymodels.Posts.id.desc())
-            .first()
-        )
-    else:
-        max_post_id = (
-            session.query(mymodels.Posts.id)
-            .order_by(mymodels.Posts.id.desc())
-            .first()
-        )
-    # searchが指定されていない場合は、すべての投稿を返す（条件なし）
-    # 緯度経度が指定されている場合でも、すべての投稿を返す（現在地検索の場合は中心を指定するだけ）
+            # 同じAND条件でフィルタリング
+            for condition in conditions:
+                max_post_id_query = max_post_id_query.filter(condition)
+            max_post_id = max_post_id_query.order_by(mymodels.Posts.id.desc()).first()
+        else:
+            max_post_id = (
+                session.query(mymodels.Posts.id)
+                .order_by(mymodels.Posts.id.desc())
+                .first()
+            )
 
-    results = session.execute(stmt).all()
-    session.close()
+        # 検索結果が空の場合の処理
+        if not results:
+            return jsonify({
+                "posts": [],
+                "max_post": None,
+                "message": "検索結果がありませんでした。"
+            }), 200
 
-    # post_idをキーとした辞書にまとめる
-    posts_dict = {}
-    for post, loc, species_name in results:
-        if post.id not in posts_dict:
-            posts_dict[post.id] = {
-                "id": post.id,
-                "user_id": post.user_id,
-                "description": post.description,
-                "collected_at": post.collected_at.isoformat() if post.collected_at else None,
-                "latitude": loc.latitude,
-                "longitude": loc.longitude,
-                "location_name": loc.name,
-                "prefecture": loc.prefecture,
-                "city": loc.city,
-                "species_names": []
-            }
-        # species_nameがある場合のみ追加
-        if species_name:
-            posts_dict[post.id]["species_names"].append(species_name)
+        # post_idをキーとした辞書にまとめる
+        posts_dict = {}
+        for post, loc, species_name in results:
+            if post.id not in posts_dict:
+                posts_dict[post.id] = {
+                    "id": post.id,
+                    "user_id": post.user_id,
+                    "description": post.description,
+                    "collected_at": post.collected_at.isoformat() if post.collected_at else None,
+                    "latitude": loc.latitude,
+                    "longitude": loc.longitude,
+                    "location_name": loc.name,
+                    "prefecture": loc.prefecture,
+                    "city": loc.city,
+                    "species_names": []
+                }
+            # species_nameがある場合のみ追加
+            if species_name:
+                posts_dict[post.id]["species_names"].append(species_name)
 
-    # 辞書をリストに変換
-    posts_json = list(posts_dict.values())
-    return jsonify({
-        "posts": posts_json,
-        "max_post": max_post_id[0] if max_post_id else None
-    })
+        # 辞書をリストに変換
+        posts_json = list(posts_dict.values())
+        return jsonify({
+            "posts": posts_json,
+            "max_post": max_post_id[0] if max_post_id else None
+        })
+
+    except Exception as e:
+        print(f"Error fetching posts: {e}")
+        return jsonify({"error": "データの取得中にエラーが発生しました"}), 500
+    finally:
+        session.close()
 
 
+###############################
+# マップ吹き出し用
+###############################
 @app.route('/map/post/<int:post_id>', methods=['GET'])
 def get_post_details(post_id):
     session = SessionLocal()
@@ -190,10 +231,10 @@ def get_post_details(post_id):
         # 追加: images テーブルとの結合
         stmt = (
             select(
-                mymodels.Posts, 
-                mymodels.Location, 
-                mymodels.Species.name, 
-                mymodels.Users, 
+                mymodels.Posts,
+                mymodels.Location,
+                mymodels.Species.name,
+                mymodels.Users,
                 mymodels.Images.image_url  # 修正: 正しいカラム名に変更
             )
             .join(mymodels.Location, mymodels.Posts.id == mymodels.Location.post_id)
@@ -201,7 +242,7 @@ def get_post_details(post_id):
             .join(mymodels.Species, mymodels.SpeciesInfo.species_id == mymodels.Species.id, isouter=True)
             .join(mymodels.Users, mymodels.Posts.user_id == mymodels.Users.id, isouter=True)
             .join(mymodels.Images, and_(
-                mymodels.Images.post_id == mymodels.Posts.id, 
+                mymodels.Images.post_id == mymodels.Posts.id,
                 mymodels.Images.position == 1  # position=1 の画像
             ), isouter=True)  # isouter=True により、関連するレコードがなくてもエラーにならない
             .where(mymodels.Posts.id == post_id)
@@ -257,20 +298,24 @@ def get_user_posts():
             select(
                 mymodels.Posts.id,
                 mymodels.Users.name.label("user_name"),
+                mymodels.Users.collection_start_at,  # 追加: 採集開始日
                 mymodels.Location.name.label("location_name"),
                 mymodels.Posts.collected_at,
                 mymodels.Posts.description,
                 mymodels.Users.icon.label("user_icon"),
-                func.group_concat(func.coalesce(mymodels.Species.name, '不明').distinct()).label("species_name")
+                func.group_concat(func.coalesce(mymodels.Species.name, '不明').distinct()).label("species_name"),
+                func.group_concat(func.distinct(mymodels.Images.image_url)).label("image_urls")  
             )
             .join(mymodels.Users, mymodels.Posts.user_id == mymodels.Users.id)
             .join(mymodels.SpeciesInfo, mymodels.Posts.id == mymodels.SpeciesInfo.post_id)
             .join(mymodels.Species, mymodels.SpeciesInfo.species_id == mymodels.Species.id)
             .join(mymodels.Location, mymodels.Posts.id == mymodels.Location.post_id)
+            .outerjoin(mymodels.Images, mymodels.Posts.id == mymodels.Images.post_id)
             .where(mymodels.Users.id == user_id)
             .group_by(
                 mymodels.Posts.id,
                 mymodels.Users.name,
+                mymodels.Users.collection_start_at,  # 追加: グループ化に含める
                 mymodels.Location.name,
                 mymodels.Posts.collected_at,
                 mymodels.Posts.description,
@@ -278,22 +323,33 @@ def get_user_posts():
             )
         )
 
-
+        # クエリの実行
         rows = session.execute(stmt).fetchall()
 
+        # デバッグ用: クエリ結果を出力
+        print("Query result:")
+        for row in rows:
+            print(row)  # 全体の行を出力
+            for key, value in row._mapping.items():
+                print(f"Field: {key}, Value: {value}, Type: {type(value)}")  # 各フィールドの型を確認
+
+        # 結果を整形
         result = [
             {
                 'id': row.id,
                 'user_name': row.user_name,
+                'collection_start_at': row.collection_start_at.isoformat() if row.collection_start_at else None,  # 追加: フィールドを整形
                 'location_name': row.location_name,
                 'collected_at': row.collected_at.isoformat() if row.collected_at else None,
                 'description': row.description,
-                'user_icon': row.user_icon or '-',
-                'species_name': row.species_name or '-'
+                'user_icon': row.user_icon.decode('utf-8') if isinstance(row.user_icon, bytes) else row.user_icon,  # デコードを追加
+                'species_name': row.species_name or '-',
+                'image_urls': row.image_urls.split(',') if row.image_urls else []  # 画像URLをリストとして返す
             }
             for row in rows
         ]
         return jsonify(result)
+
     except sqlalchemy.exc.OperationalError as oe:
         print(f"Operational error: {oe}")
         return jsonify({'error': 'Database operational error'}), 500
@@ -302,6 +358,8 @@ def get_user_posts():
         return jsonify({'error': str(e)}), 500
     finally:
         session.close()
+
+
 
 @app.route('/post/<int:post_id>', methods=['GET'])
 def get_post(post_id):
@@ -608,3 +666,4 @@ def insert_environment(data, post_id, session):
 
 
 ##############Yoshiki最終行##############
+
