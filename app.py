@@ -36,22 +36,30 @@ def index():
 
 # カレントディレクトリを取得
 BASE_DIR = os.getcwd()
-@app.route('/icon_images/<path:filename>')
-def serve_image(filename):
-    # 画像ディレクトリを指定
-    images_dir = os.path.join(BASE_DIR, 'images', 'icon_images')
-    # リクエストされたファイルの絶対パスを作成
-    requested_file_path = os.path.join(images_dir, filename)
-    # ファイルが存在しない場合、デフォルトの画像を返す
-    if not os.path.isfile(requested_file_path):
-        default_file_path = os.path.join(images_dir, 'user.svg')
-        if os.path.isfile(default_file_path):
-            return send_from_directory(images_dir, 'user.svg')
-        else:
-            abort(404)  # デフォルト画像すらない場合は 404 を返す
+# 画像を提供するエンドポイント
+@app.route('/images/<folder>/<path:filename>')
+def serve_images(folder, filename):
+    """
+    images ディレクトリ内の任意のサブフォルダに対してアクセスを許可。
+    サブフォルダ名: icon_images, post_images
+    """
+    allowed_folders = ['icon_images', 'post_images']
 
-    # リクエストされた画像が存在すればそれを返す
+    if folder not in allowed_folders:
+        abort(403, description="Access to this directory is not allowed.")
+
+    images_dir = os.path.join(BASE_DIR, 'images', folder)
+    requested_file_path = os.path.join(images_dir, filename)
+
+    if not os.path.isfile(requested_file_path):
+        abort(404, description="Image not found.")
+
     return send_from_directory(images_dir, filename)
+
+if __name__ == '__main__':
+    app.run(debug=True)
+
+
 
 @app.route("/user", methods=['POST'])
 def create_user():
@@ -295,12 +303,14 @@ def get_user_posts():
                 mymodels.Posts.collected_at,
                 mymodels.Posts.description,
                 mymodels.Users.icon.label("user_icon"),
-                func.group_concat(func.coalesce(mymodels.Species.name, '不明').distinct()).label("species_name")
+                func.group_concat(func.coalesce(mymodels.Species.name, '不明').distinct()).label("species_name"),
+                func.group_concat(func.distinct(mymodels.Images.image_url)).label("image_urls")  
             )
             .join(mymodels.Users, mymodels.Posts.user_id == mymodels.Users.id)
             .join(mymodels.SpeciesInfo, mymodels.Posts.id == mymodels.SpeciesInfo.post_id)
             .join(mymodels.Species, mymodels.SpeciesInfo.species_id == mymodels.Species.id)
             .join(mymodels.Location, mymodels.Posts.id == mymodels.Location.post_id)
+            .outerjoin(mymodels.Images, mymodels.Posts.id == mymodels.Images.post_id)
             .where(mymodels.Users.id == user_id)
             .group_by(
                 mymodels.Posts.id,
@@ -333,7 +343,8 @@ def get_user_posts():
                 'collected_at': row.collected_at.isoformat() if row.collected_at else None,
                 'description': row.description,
                 'user_icon': row.user_icon.decode('utf-8') if isinstance(row.user_icon, bytes) else row.user_icon,  # デコードを追加
-                'species_name': row.species_name or '-'
+                'species_name': row.species_name or '-',
+                'image_urls': row.image_urls.split(',') if row.image_urls else []  # 画像URLをリストとして返す
             }
             for row in rows
         ]
