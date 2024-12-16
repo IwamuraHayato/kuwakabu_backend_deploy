@@ -1,4 +1,4 @@
-from flask import Flask, send_from_directory, abort ,request, jsonify
+from flask import Flask, request, jsonify, send_from_directory, abort
 from flask_cors import CORS
 from db_control import crud, mymodels
 from db_control.crud import authenticate_user, get_last_inserted_id
@@ -21,19 +21,47 @@ CORS(app)
 
 app.config['SECRET_KEY'] = os.urandom(24)
 
-UPLOAD_FOLDER = './images/post_images/'
+POST_UPLOAD_FOLDER = 'post_images/'
+DEFAULT_ICON_PATH = "icon_images/face-icon.svg"  # デフォルトアイコンのパス
+DEFAULT_POST_IMAGE_PATH = 'post_images/no-image-icon.svg'  # デフォルト採集記録画像のパス
+
+BASE_IMAGES_DIR = os.path.join(os.getcwd(), "images") # 画像フォルダのベースディレクトリ
+
 
 SessionLocal = sessionmaker(bind=engine)
 
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
-# db_path = './db_control/CRM.db'
+
 
 # トップページルート
-# このルートはトップページにアクセスした際に呼び出され、簡単なテキストレスポンスを返します。
 @app.route("/")
 def index():
     return "<p>Flask top page!</p>"
 
+###############################
+# /mapと/post/[id]で使用する静的ファイル（画像）を受け渡すエンドポイント
+###############################
+@app.route('/static/images/<path:filename>')
+def serve_static_images(filename):
+    """
+    指定された画像ファイルを返すエンドポイント。
+    ファイルが存在しない場合はデフォルト画像を返す。
+    """
+    requested_path = os.path.join(BASE_IMAGES_DIR, filename)
+    if os.path.isfile(requested_path):
+        return send_from_directory(BASE_IMAGES_DIR, filename)
+    else:
+        # ファイルが存在しない場合、デフォルト画像を返す
+        if "icon_images" in filename:
+            return send_from_directory(BASE_IMAGES_DIR, DEFAULT_ICON_PATH)
+        elif "post_images" in filename:
+            return send_from_directory(BASE_IMAGES_DIR, DEFAULT_POST_IMAGE_PATH)
+        abort(404)
+
+
+###############################
+# /mypageで使用する画像を受け渡すエンドポイント
+###############################
 # カレントディレクトリを取得
 BASE_DIR = os.getcwd()
 # 画像を提供するエンドポイント
@@ -59,8 +87,9 @@ def serve_images(folder, filename):
 if __name__ == '__main__':
     app.run(debug=True)
 
-
-
+###############################
+# ユーザー登録
+###############################
 @app.route("/user", methods=['POST'])
 def create_user():
     values = request.get_json()
@@ -228,14 +257,13 @@ def get_posts():
 def get_post_details(post_id):
     session = SessionLocal()
     try:
-        # 追加: images テーブルとの結合
         stmt = (
             select(
                 mymodels.Posts,
                 mymodels.Location,
                 mymodels.Species.name,
                 mymodels.Users,
-                mymodels.Images.image_url  # 修正: 正しいカラム名に変更
+                mymodels.Images.image_url
             )
             .join(mymodels.Location, mymodels.Posts.id == mymodels.Location.post_id)
             .join(mymodels.SpeciesInfo, mymodels.Posts.id == mymodels.SpeciesInfo.post_id, isouter=True)
@@ -243,44 +271,48 @@ def get_post_details(post_id):
             .join(mymodels.Users, mymodels.Posts.user_id == mymodels.Users.id, isouter=True)
             .join(mymodels.Images, and_(
                 mymodels.Images.post_id == mymodels.Posts.id,
-                mymodels.Images.position == 1  # position=1 の画像
-            ), isouter=True)  # isouter=True により、関連するレコードがなくてもエラーにならない
+                mymodels.Images.position == 1
+            ), isouter=True)
             .where(mymodels.Posts.id == post_id)
         )
 
         result = session.execute(stmt).all()
 
-        # 結果がない場合
         if not result:
             return jsonify({"success": False, "message": "Post not found"}), 404
 
-        # データの整形
-        post, location, species_name, user, image_url = result[0]  # image_url が None でも対応可能
+        post, location, species_name, user, image_url = result[0]
+
+        # レスポンスの生成
         response = {
             "id": post.id,
             "description": post.description,
-            # "collected_at": post.collected_at.isoformat() if post.collected_at else None,
             "collected_at": post.collected_at.strftime("%Y-%m-%d") if post.collected_at else None,
             "location": {
                 "name": location.name,
                 "latitude": location.latitude,
                 "longitude": location.longitude,
             },
-            "species_names": list(set([r[2] for r in result if r[2]])),  # 重複排除
+            "species_names": list(set([r[2] for r in result if r[2]])),
             "user": {
                 "name": user.name if user else "匿名",
-                "icon": user.icon if user and user.icon else "/src/face-icon.svg",  # デフォルトアイコンを返す
+                "icon": f"/static/images/{user.icon}" if user and user.icon else f"/static/images{DEFAULT_ICON_PATH}",
             },
-            "image_url": image_url if image_url else "/src/no-image-icon.svg"  # 画像がない場合は no-image画像 を返す
+            "image_url": f"/static/images/{image_url}" if image_url else f"/static/images{DEFAULT_POST_IMAGE_PATH}"
         }
 
         return jsonify(response)
+
+    except Exception as e:
+        logging.error(f"Error in get_post_details: {e}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
     finally:
         session.close()
 
-
-######### がたろー mypage  #########
-
+###############################
+# マイページ表示
+###############################
 @app.route('/mypage', methods=['GET'])
 def get_user_posts():
     user_id = request.args.get('user_id', type=int)
@@ -361,54 +393,60 @@ def get_user_posts():
 
 
 
+############################
+# 詳細ページ
+############################
 @app.route('/post/<int:post_id>', methods=['GET'])
 def get_post(post_id):
     session = SessionLocal()
 
     try:
+        # 投稿情報を取得
         stmt = (
             select(
                 mymodels.Posts.id,
                 mymodels.Posts.description,
                 mymodels.Posts.collected_at,
-                mymodels.Users.name.label("user_name"), 
+                mymodels.Users.name.label("user_name"),
                 mymodels.Users.icon.label("user_icon"),
-                mymodels.Location.name.label("location_name"), 
+                mymodels.Location.name.label("location_name"),
                 mymodels.Location.latitude,
                 mymodels.Location.longitude,
                 func.group_concat(
                     distinct(
-                        mymodels.Species.name+','+
-                        mymodels.SpeciesInfo.gender+','+
-                        cast(mymodels.SpeciesInfo.count, String)+','+
+                        mymodels.Species.name + ',' +
+                        mymodels.SpeciesInfo.gender + ',' +
+                        cast(mymodels.SpeciesInfo.count, String) + ',' +
                         cast(mymodels.SpeciesInfo.max_size, String)
-                        )).label("species_data"),
+                    )
+                ).label("species_data"),
                 func.group_concat(distinct(mymodels.Method.name)).label("methods"),
                 mymodels.MethodInfo.method_other,
                 func.group_concat(distinct(mymodels.Tree.name)).label("trees"),
                 mymodels.TreeInfo.tree_other,
                 mymodels.Environment.whether,
                 mymodels.Environment.temperature,
+                mymodels.Environment.crowd_level,  # crowd_levelを追加
+                mymodels.Environment.is_restricted_area,  # is_restricted_areaを追加
                 func.group_concat(distinct(mymodels.DangerousSpecies.name)).label("dangerous_species_names"),
                 mymodels.DangerousSpeciesInfo.dangerous_species_other,
                 func.group_concat(distinct(mymodels.Facility.name)).label("facilities"),
                 mymodels.FacilityInfo.facility_other,
-                mymodels.Environment.is_restricted_area,
                 mymodels.Environment.free_memo,
             )
-            .join(mymodels.Users, mymodels.Posts.user_id == mymodels.Users.id)
-            .join(mymodels.Location, mymodels.Posts.id == mymodels.Location.post_id)
-            .join(mymodels.SpeciesInfo, mymodels.Posts.id == mymodels.SpeciesInfo.post_id)
-            .join(mymodels.Species, mymodels.SpeciesInfo.species_id == mymodels.Species.id)
-            .join(mymodels.MethodInfo, mymodels.Posts.id == mymodels.MethodInfo.post_id)
-            .join(mymodels.Method, mymodels.MethodInfo.method_id == mymodels.Method.id)
-            .join(mymodels.TreeInfo, mymodels.Posts.id == mymodels.TreeInfo.post_id)
-            .join(mymodels.Tree, mymodels.TreeInfo.tree_id == mymodels.Tree.id)
-            .join(mymodels.Environment, mymodels.Posts.id == mymodels.Environment.post_id)
-            .join(mymodels.DangerousSpeciesInfo, mymodels.Posts.id == mymodels.DangerousSpeciesInfo.post_id)
-            .join(mymodels.DangerousSpecies, mymodels.DangerousSpeciesInfo.dangerous_species_id == mymodels.DangerousSpecies.id)
-            .join(mymodels.FacilityInfo, mymodels.Posts.id == mymodels.FacilityInfo.post_id)
-            .join(mymodels.Facility, mymodels.FacilityInfo.facility_id == mymodels.Facility.id)
+            .outerjoin(mymodels.Users, mymodels.Posts.user_id == mymodels.Users.id)
+            .outerjoin(mymodels.Location, mymodels.Posts.id == mymodels.Location.post_id)
+            .outerjoin(mymodels.SpeciesInfo, mymodels.Posts.id == mymodels.SpeciesInfo.post_id)
+            .outerjoin(mymodels.Species, mymodels.SpeciesInfo.species_id == mymodels.Species.id)
+            .outerjoin(mymodels.MethodInfo, mymodels.Posts.id == mymodels.MethodInfo.post_id)
+            .outerjoin(mymodels.Method, mymodels.MethodInfo.method_id == mymodels.Method.id)
+            .outerjoin(mymodels.TreeInfo, mymodels.Posts.id == mymodels.TreeInfo.post_id)
+            .outerjoin(mymodels.Tree, mymodels.TreeInfo.tree_id == mymodels.Tree.id)
+            .outerjoin(mymodels.Environment, mymodels.Posts.id == mymodels.Environment.post_id)
+            .outerjoin(mymodels.DangerousSpeciesInfo, mymodels.Posts.id == mymodels.DangerousSpeciesInfo.post_id)
+            .outerjoin(mymodels.DangerousSpecies, mymodels.DangerousSpeciesInfo.dangerous_species_id == mymodels.DangerousSpecies.id)
+            .outerjoin(mymodels.FacilityInfo, mymodels.Posts.id == mymodels.FacilityInfo.post_id)
+            .outerjoin(mymodels.Facility, mymodels.FacilityInfo.facility_id == mymodels.Facility.id)
             .where(mymodels.Posts.id == post_id)
             .group_by(
                 mymodels.Posts.id,
@@ -423,25 +461,49 @@ def get_post(post_id):
                 mymodels.TreeInfo.tree_other,
                 mymodels.Environment.whether,
                 mymodels.Environment.temperature,
+                mymodels.Environment.crowd_level,  # group_by に crowd_level を追加
+                mymodels.Environment.is_restricted_area,  # group_by に is_restricted_area を追加
                 mymodels.DangerousSpeciesInfo.dangerous_species_other,
                 mymodels.FacilityInfo.facility_other,
-                mymodels.Environment.is_restricted_area,
                 mymodels.Environment.free_memo
             )
         )
-
         post = session.execute(stmt).first()
 
         if not post:
             print(f"No post found with id: {post_id}")
             return jsonify({"success": False, "message": "Post not found"}), 404
 
+        # 投稿画像を取得
+        image_stmt = (
+            select(
+                mymodels.Images.image_url,
+                mymodels.Images.position
+            )
+            .where(mymodels.Images.post_id == post_id)
+            .order_by(mymodels.Images.position)
+        )
+        images = session.execute(image_stmt).fetchall()
+
+        # 投稿画像のリストを作成
+        post_images = [
+            {
+                "url": f"/static/images/{image.image_url}" if image.image_url else f"/static/images/{DEFAULT_POST_IMAGE_PATH}",
+                "position": image.position
+            }
+            for image in images
+        ]
+
+        # ユーザーアイコンの処理
+        user_icon = f"/static/images/{post.user_icon}" if post.user_icon else f"/static/images/{DEFAULT_ICON_PATH}"
+
+        # レスポンスを作成
         response = {
             "post_id": post.id,
             "description": post.description,
             "collected_at": post.collected_at.isoformat() if post.collected_at else None,
             "user_name": post.user_name,
-            "user_icon": post.user_icon,
+            "user_icon": user_icon,
             "location_name": post.location_name,
             "latitude": post.latitude,
             "longitude": post.longitude,
@@ -452,12 +514,15 @@ def get_post(post_id):
             "tree_other": post.tree_other,
             "whether": post.whether,
             "temperature": post.temperature,
+            "crowd_level": post.crowd_level,
+            # "is_restricted_area": post.is_restricted_area,
+            "is_restricted_area": bool(post.is_restricted_area) if post.is_restricted_area is not None else None,
             "dangerous_species_names": post.dangerous_species_names,
             "dangerous_species_other": post.dangerous_species_other,
             "facilities": post.facilities,
             "facility_other": post.facility_other,
-            "is_restricted_area": post.is_restricted_area,
             "free_memo": post.free_memo,
+            "images": post_images,
         }
 
         return jsonify(response)
@@ -465,10 +530,15 @@ def get_post(post_id):
     except Exception as e:
         print(f"Query failed: {e}")  # 明示的なエラー出力
         return jsonify({'error': str(e)}), 500
+
     finally:
         session.close()
 
-########### Yoshiki 追加（投稿）####################
+
+
+###############################
+# 採集記録の投稿
+###############################
 @app.route("/api/posts", methods=["POST"])
 def create_post():
     data = request.form
@@ -525,8 +595,8 @@ def save_images(files, post_id, session):
     for key in files:
         file = files[key]
         unique_filename = f"{uuid.uuid4()}_{file.filename}"
-        file_path = os.path.join(UPLOAD_FOLDER, unique_filename)
-        os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+        file_path = os.path.join(POST_UPLOAD_FOLDER, unique_filename)
+        os.makedirs(POST_UPLOAD_FOLDER, exist_ok=True)
         file.save(file_path)
 
         # position を追加
@@ -651,7 +721,6 @@ def insert_species_info(data, post_id, session):
         session.execute(insert(mymodels.SpeciesInfo).values(species_data))
 
 
-
 def insert_environment(data, post_id, session):
     """Environment テーブルへのデータ挿入"""
     environment_data = {
@@ -663,7 +732,3 @@ def insert_environment(data, post_id, session):
         "free_memo": data.get("memo"),  # メモ
     }
     session.execute(insert(mymodels.Environment).values(environment_data))
-
-
-##############Yoshiki最終行##############
-
