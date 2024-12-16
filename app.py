@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, send_from_directory, abort ,request, jsonify
 from flask_cors import CORS
 from db_control import crud, mymodels
 from db_control.crud import authenticate_user, get_last_inserted_id
@@ -12,9 +12,9 @@ import sqlalchemy
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import select, or_, and_, text, distinct, func, cast, insert
 from sqlalchemy.types import String
-import uuid
-from flask import Flask, send_from_directory, abort
 from sqlalchemy.exc import SQLAlchemyError
+import uuid
+import urllib.parse
 
 app = Flask(__name__)
 CORS(app)
@@ -521,6 +521,7 @@ def insert_post(data, session):
 
 def save_images(files, post_id, session):
     """Images テーブルへのデータ挿入"""
+    position = 1  # position を初期化
     for key in files:
         file = files[key]
         unique_filename = f"{uuid.uuid4()}_{file.filename}"
@@ -528,48 +529,141 @@ def save_images(files, post_id, session):
         os.makedirs(UPLOAD_FOLDER, exist_ok=True)
         file.save(file_path)
 
+        # position を追加
         image_data = {
             "post_id": post_id,
             "image_url": file_path,
+            "position": position
         }
         session.execute(insert(mymodels.Images).values(image_data))
+        
+        # 次のファイルのために position をインクリメント
+        position += 1
+
 
 
 def insert_location(data, post_id, session):
     """Location テーブルへのデータ挿入"""
+    place = data.get("collectionPlace")
+    latitude, longitude = None, None
+    prefecture, city = None, None
+
+    if place:
+        try:
+            # 環境変数からGoogle Maps APIキーを取得
+            api_key = os.getenv("GOOGLE_MAPS_API_KEY")
+            if not api_key:
+                raise ValueError("Google Maps APIキーが設定されていません")
+            
+            # 日本語住所をURLエンコード
+            encoded_place = urllib.parse.quote(place)
+
+            # Google Maps Geocoding APIを使用して住所情報を取得
+            geocoding_url = f"https://maps.googleapis.com/maps/api/geocode/json?address={place}&key={api_key}&language=ja"
+            response = requests.get(geocoding_url)
+            response_data = response.json()
+
+            if response_data["status"] == "OK":
+                location = response_data["results"][0]["geometry"]["location"]
+                latitude = location["lat"]
+                longitude = location["lng"]
+
+                # 住所コンポーネントから都道府県と市区町村を抽出
+                for component in response_data["results"][0]["address_components"]:
+                    if "administrative_area_level_1" in component["types"]:  # 都道府県
+                        prefecture = component["long_name"]
+                    if "locality" in component["types"]:  # 市区町村
+                        city = component["long_name"]
+
+                print(f"Extracted Data - Prefecture: {prefecture}, City: {city}, Latitude: {latitude}, Longitude: {longitude}")
+            else:
+                print(f"Google Maps API エラー: {response_data['status']}")
+
+        except Exception as e:
+            print(f"Geocoding API の呼び出し中にエラーが発生しました: {e}")
+
+    # Location データの挿入
     location_data = {
-        "name": data.get("collectionPlace"),
-        "latitude": None,  # Google Maps API で取得する場合、ここに処理を追加
-        "longitude": None,
+        "name": place,
+        "latitude": latitude,
+        "longitude": longitude,
+        "prefecture": prefecture,
+        "city": city,
         "post_id": post_id,
     }
-    session.execute(insert(mymodels.Location).values(location_data))
+    print("Location Data to Insert:", location_data)  # デバッグ用ログ
+
+    try:
+        session.execute(insert(mymodels.Location).values(location_data))
+        print("Locationデータ挿入成功")
+    except Exception as e:
+        print(f"Locationデータ挿入エラー: {e}")
+
+def insert_species_info(data, post_id, session):
+    """SpeciesInfo テーブルへのデータ挿入"""
+    # 種類と性別のデータを JSON として受け取る
+    species_list = json.loads(data.get("rows", "[]"))  # rows を JSON としてデコード
+
+    # 種類と species_id のマッピング
+    species_mapping = {
+        "カブトムシ": 1,
+        "コクワガタ": 2,
+        "ノコギリクワガタ": 3,
+        "スジクワガタ": 4,
+        "ヒラタクワガタ": 5,
+        "ミヤマクワガタ": 6,
+        "アカアシクワガタ": 7,
+        "その他": 8,
+    }
+
+    # 性別の変換マッピング
+    gender_mapping = {
+        "オス": "♂",
+        "メス": "♀",
+        "両方": "両方",  # 必要なら "両方" もそのまま残す
+        "": None,  # 未選択は None にする
+    }
+
+    for species in species_list:
+        raw_gender = species.get("gender")  # フロントエンドから受け取った生データ
+        gender = gender_mapping.get(raw_gender, None)  # 性別を変換
+        
+        # デバッグ用のログを追加
+        print(f"Species data received: {species}")
+        print(f"Raw gender: {raw_gender}, Mapped gender: {gender}")
+        # species_id を取得
+        species_id = species_mapping.get(species.get("type"), 8)  # 見つからない場合は "その他" (ID: 8)
+        
+        # gender を変換
+        gender = gender_mapping.get(species.get("gender"), None)
+
+        # 挿入データの構築
+        species_data = {
+            "post_id": post_id,
+            "species_id": species_id,  # species_id を連携
+            "species_other": None if species_id != 8 else species.get("type"),  # その他の場合にのみ詳細を保存
+            "gender": gender,  # 性別 (変換後の値を保存)
+            "count": int(species.get("count") or 0),  # 採集数 (None の場合は 0)
+            "max_size": float(species.get("maxSize") or 0),  # 最大サイズ (None の場合は 0)
+        }
+
+        # DB に挿入
+        session.execute(insert(mymodels.SpeciesInfo).values(species_data))
+
 
 
 def insert_environment(data, post_id, session):
     """Environment テーブルへのデータ挿入"""
     environment_data = {
         "post_id": post_id,
-        "whether": data.get("weather"),
-        "temperature": float(data.get("temperature") or 0),  # None の場合は 0 に
-        "is_restricted_area": data.get("forbiddenArea") == "該当する",
-        "crowd_level": {"少ない": 1, "普通": 2, "多い": 3}.get(data.get("crowdLevel"), None),
-        "free_memo": data.get("memo"),
+        "whether": data.get("weather"),  # 天気
+        "temperature": float(data.get("temperature") or 0),  # 気温、Noneの場合は0
+        "is_restricted_area": data.get("forbiddenArea") == "該当する",  # 採集禁止エリア
+        "crowd_level": {"少ない": 1, "普通": 2, "多い": 3}.get(data.get("crowdLevel"), None),  # 人の混み具合
+        "free_memo": data.get("memo"),  # メモ
     }
     session.execute(insert(mymodels.Environment).values(environment_data))
 
 
-def insert_species_info(data, post_id, session):
-    """SpeciesInfo テーブルへのデータ挿入"""
-    species_list = json.loads(data.get("rows", "[]"))  # rows を JSON としてデコード
-    for species in species_list:
-        species_data = {
-            "post_id": post_id,
-            "species_other": species.get("type"),
-            "gender": species.get("gender"),
-            "count": int(species.get("count") or 0),  # None の場合は 0 に
-            "max_size": float(species.get("maxSize") or 0),  # None の場合は 0 に
-        }
-        session.execute(insert(mymodels.SpeciesInfo).values(species_data))
-
 ##############Yoshiki最終行##############
+
