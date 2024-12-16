@@ -14,6 +14,7 @@ from sqlalchemy import select, or_, and_, text, distinct, func, cast, insert
 from sqlalchemy.types import String
 import uuid
 from flask import Flask, send_from_directory, abort
+from sqlalchemy.exc import SQLAlchemyError
 
 app = Flask(__name__)
 CORS(app)
@@ -66,12 +67,22 @@ def create_user():
     values["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     try:
-        crud.myinsert(mymodels.Users, values)
+        # 新しいユーザーをデータベースに挿入
+        new_user_id = crud.myinsert(mymodels.Users, values)  # 修正後の関数を呼び出す
+
+        # テスト用のパスワード（本番ではセキュアな方法を使用）
+        generated_password = "1234"  # ここは適宜変更可能
+
+        return jsonify({
+            "message": "User created successfully",
+            "user_id": new_user_id,  # 実際のユーザーIDを返す
+            "password": generated_password
+        }), 201
+
     except Exception as e:
         print(f"Database insert failed: {e}")
         return jsonify({"error": f"Database insert failed: {str(e)}"}), 500
 
-    return jsonify({"message": "User created successfully"}), 201
 
 ###############################
 # ユーザー照会
@@ -279,6 +290,7 @@ def get_user_posts():
             select(
                 mymodels.Posts.id,
                 mymodels.Users.name.label("user_name"),
+                mymodels.Users.collection_start_at,  # 追加: 採集開始日
                 mymodels.Location.name.label("location_name"),
                 mymodels.Posts.collected_at,
                 mymodels.Posts.description,
@@ -293,6 +305,7 @@ def get_user_posts():
             .group_by(
                 mymodels.Posts.id,
                 mymodels.Users.name,
+                mymodels.Users.collection_start_at,  # 追加: グループ化に含める
                 mymodels.Location.name,
                 mymodels.Posts.collected_at,
                 mymodels.Posts.description,
@@ -315,6 +328,7 @@ def get_user_posts():
             {
                 'id': row.id,
                 'user_name': row.user_name,
+                'collection_start_at': row.collection_start_at.isoformat() if row.collection_start_at else None,  # 追加: フィールドを整形
                 'location_name': row.location_name,
                 'collected_at': row.collected_at.isoformat() if row.collected_at else None,
                 'description': row.description,
@@ -333,6 +347,7 @@ def get_user_posts():
         return jsonify({'error': str(e)}), 500
     finally:
         session.close()
+
 
 
 @app.route('/post/<int:post_id>', methods=['GET'])
