@@ -125,6 +125,7 @@ class Users(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(nullable=False)
     icon: Mapped[str] = mapped_column(nullable=True)
+
     collection_start_at: Mapped[str] = mapped_column(nullable=False)
     created_at: Mapped[str] = mapped_column(default=lambda: datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"), nullable=False)
     updated_at: Mapped[str] = mapped_column(default=lambda: datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"), nullable=True)

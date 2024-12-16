@@ -223,10 +223,10 @@ def get_post_details(post_id):
         # 追加: images テーブルとの結合
         stmt = (
             select(
-                mymodels.Posts, 
-                mymodels.Location, 
-                mymodels.Species.name, 
-                mymodels.Users, 
+                mymodels.Posts,
+                mymodels.Location,
+                mymodels.Species.name,
+                mymodels.Users,
                 mymodels.Images.image_url  # 修正: 正しいカラム名に変更
             )
             .join(mymodels.Location, mymodels.Posts.id == mymodels.Location.post_id)
@@ -234,7 +234,7 @@ def get_post_details(post_id):
             .join(mymodels.Species, mymodels.SpeciesInfo.species_id == mymodels.Species.id, isouter=True)
             .join(mymodels.Users, mymodels.Posts.user_id == mymodels.Users.id, isouter=True)
             .join(mymodels.Images, and_(
-                mymodels.Images.post_id == mymodels.Posts.id, 
+                mymodels.Images.post_id == mymodels.Posts.id,
                 mymodels.Images.position == 1  # position=1 の画像
             ), isouter=True)  # isouter=True により、関連するレコードがなくてもエラーにならない
             .where(mymodels.Posts.id == post_id)
