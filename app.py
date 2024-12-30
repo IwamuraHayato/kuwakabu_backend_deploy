@@ -546,8 +546,8 @@ def create_post():
     print("Received data:", data)
 
     # 必須フィールドのチェック
-    if not data.get("collectionDate") or not data.get("collectionPlace"):
-        return jsonify({"error": "画像と採集日時と採集場所は必須です"}), 400
+    if not data.get("collectionDate") or not data.get("collectionPlace") or not data.get("user_id"):
+        return jsonify({"error": "ユーザーID、画像、採集日時、採集場所は必須です"}), 400
 
     try:
         with crud.session_scope() as session:
@@ -576,7 +576,7 @@ def create_post():
 def insert_post(data, session):
     """Posts テーブルへのデータ挿入"""
     post_data = {
-    "user_id": 1,  # 仮のユーザーID
+    "user_id": int(data.get("user_id")),
     "description": data.get("memo"),
     "collected_at": datetime.strptime(data.get("collectionDate"), "%Y-%m-%dT%H:%M"),
     "created_at": datetime.now(),
@@ -621,7 +621,8 @@ def insert_location(data, post_id, session):
     if place:
         try:
             # 環境変数からGoogle Maps APIキーを取得
-            api_key = os.getenv("GOOGLE_MAPS_API_KEY")
+            api_key = "AIzaSyBVlySFxUukdMeWL_vv6UcDV2ajXKht9so"
+            # api_key = os.getenv("GOOGLE_MAPS_API_KEY")
             if not api_key:
                 raise ValueError("Google Maps APIキーが設定されていません")
             
@@ -629,7 +630,7 @@ def insert_location(data, post_id, session):
             encoded_place = urllib.parse.quote(place)
 
             # Google Maps Geocoding APIを使用して住所情報を取得
-            geocoding_url = f"https://maps.googleapis.com/maps/api/geocode/json?address={place}&key={api_key}&language=ja"
+            geocoding_url = f"https://maps.googleapis.com/maps/api/geocode/json?address={encoded_place}&key={api_key}&language=ja"
             response = requests.get(geocoding_url)
             response_data = response.json()
 
