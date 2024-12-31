@@ -11,11 +11,11 @@ from sqlalchemy import create_engine
 
 # MySQL接続設定
 # ここでMySQLの接続情報を指定
-DB_USER = "tech0gen8student"          # MySQLのユーザー名
-DB_PASSWORD = "5iTbVNuqQu8z16"      # MySQLのパスワード
-DB_HOST = "tech0-gen-8-step3-rdb-16.mysql.database.azure.com" # MySQLのホスト (例: localhost または IP アドレス)
+DB_USER = "kuwakabu0member"          # MySQLのユーザー名
+DB_PASSWORD = "_HKUeX6VJt"      # MySQLのパスワード
+DB_HOST = "kuwakabu-azure-mysql.mysql.database.azure.com" # MySQLのホスト (例: localhost または IP アドレス)
 DB_PORT = "3306"                   # MySQLのポート (通常は3306)
-DB_NAME = "kuwakabu_db"      # 接続するデータベース名
+DB_NAME = "kuwakabu_db2"      # 接続するデータベース名
 
 # SSL証明書のパス
 SSL_CERT_PATH = os.getenv('SSL_CERT_PATH')
