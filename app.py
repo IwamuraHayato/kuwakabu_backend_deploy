@@ -21,7 +21,9 @@ CORS(app)
 
 app.config['SECRET_KEY'] = os.urandom(24)
 
-POST_UPLOAD_FOLDER = 'post_images/'
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # スクリプトのあるディレクトリを取得
+POST_UPLOAD_FOLDER = os.path.join(BASE_DIR, 'images/post_images/')
+
 DEFAULT_ICON_PATH = "icon_images/face-icon.svg"  # デフォルトアイコンのパス
 DEFAULT_POST_IMAGE_PATH = 'post_images/no-image-icon.svg'  # デフォルト採集記録画像のパス
 
@@ -726,10 +728,10 @@ def insert_environment(data, post_id, session):
     """Environment テーブルへのデータ挿入"""
     environment_data = {
         "post_id": post_id,
-        "whether": data.get("weather"),  # 天気
+        "whether": data.get("weather", ""), # 天気
         "temperature": float(data.get("temperature") or 0),  # 気温、Noneの場合は0
         "is_restricted_area": data.get("forbiddenArea") == "該当する",  # 採集禁止エリア
         "crowd_level": {"少ない": 1, "普通": 2, "多い": 3}.get(data.get("crowdLevel"), None),  # 人の混み具合
-        "free_memo": data.get("memo"),  # メモ
+        "free_memo": data.get("memo", ""),  # メモ
     }
     session.execute(insert(mymodels.Environment).values(environment_data))
