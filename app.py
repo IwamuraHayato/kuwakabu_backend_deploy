@@ -21,12 +21,12 @@ CORS(app)
 
 app.config['SECRET_KEY'] = os.urandom(24)
 
-POST_UPLOAD_FOLDER = 'post_images/'
+# BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # スクリプトのあるディレクトリを取得
+BASE_IMAGES_DIR = os.path.join(os.getcwd(), "images") # 画像フォルダのベースディレクトリ
+POST_UPLOAD_FOLDER = os.path.join(BASE_IMAGES_DIR, 'post_images/')
+
 DEFAULT_ICON_PATH = "icon_images/face-icon.svg"  # デフォルトアイコンのパス
 DEFAULT_POST_IMAGE_PATH = 'post_images/no-image-icon.svg'  # デフォルト採集記録画像のパス
-
-BASE_IMAGES_DIR = os.path.join(os.getcwd(), "images") # 画像フォルダのベースディレクトリ
-
 
 SessionLocal = sessionmaker(bind=engine)
 
@@ -599,14 +599,17 @@ def save_images(files, post_id, session):
         os.makedirs(POST_UPLOAD_FOLDER, exist_ok=True)
         file.save(file_path)
 
+        # 相対パスを取得
+        relative_path = os.path.relpath(file_path, BASE_IMAGES_DIR)  # BASE_IMAGES_DIRからの相対パス
+
         # position を追加
         image_data = {
             "post_id": post_id,
-            "image_url": file_path,
+            "image_url": relative_path,  # 相対パスを保存
             "position": position
         }
         session.execute(insert(mymodels.Images).values(image_data))
-        
+
         # 次のファイルのために position をインクリメント
         position += 1
 
@@ -695,18 +698,26 @@ def insert_species_info(data, post_id, session):
         "": None,  # 未選択は None にする
     }
 
+    # for species in species_list:
+    #     raw_gender = species.get("gender")  # フロントエンドから受け取った生データ
+    #     gender = gender_mapping.get(raw_gender, None)  # 性別を変換
+        
+    #     # デバッグ用のログを追加
+    #     print(f"Species data received: {species}")
+    #     print(f"Raw gender: {raw_gender}, Mapped gender: {gender}")
+    #     # species_id を取得
+    #     species_id = species_mapping.get(species.get("type"), 8)  # 見つからない場合は "その他" (ID: 8)
+        
+    #     # gender を変換
+    #     gender = gender_mapping.get(species.get("gender"), None)
     for species in species_list:
-        raw_gender = species.get("gender")  # フロントエンドから受け取った生データ
-        gender = gender_mapping.get(raw_gender, None)  # 性別を変換
-        
-        # デバッグ用のログを追加
-        print(f"Species data received: {species}")
-        print(f"Raw gender: {raw_gender}, Mapped gender: {gender}")
-        # species_id を取得
-        species_id = species_mapping.get(species.get("type"), 8)  # 見つからない場合は "その他" (ID: 8)
-        
-        # gender を変換
-        gender = gender_mapping.get(species.get("gender"), None)
+        raw_gender = species.get("gender")
+        print(f"Received gender: {raw_gender}")  # フロントエンドからの性別データを確認
+        gender = gender_mapping.get(raw_gender.strip(), None)  # 空白を削除してからマッピング
+
+        print(f"Mapped gender: {gender}")  # マッピング結果を確認
+
+        species_id = species_mapping.get(species.get("type"), 8)
 
         # 挿入データの構築
         species_data = {
@@ -726,10 +737,10 @@ def insert_environment(data, post_id, session):
     """Environment テーブルへのデータ挿入"""
     environment_data = {
         "post_id": post_id,
-        "whether": data.get("weather"),  # 天気
+        "whether": data.get("weather", ""), # 天気
         "temperature": float(data.get("temperature") or 0),  # 気温、Noneの場合は0
         "is_restricted_area": data.get("forbiddenArea") == "該当する",  # 採集禁止エリア
         "crowd_level": {"少ない": 1, "普通": 2, "多い": 3}.get(data.get("crowdLevel"), None),  # 人の混み具合
-        "free_memo": data.get("memo"),  # メモ
+        "free_memo": data.get("memo", ""),  # メモ
     }
     session.execute(insert(mymodels.Environment).values(environment_data))
