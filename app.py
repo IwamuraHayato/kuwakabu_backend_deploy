@@ -21,14 +21,12 @@ CORS(app)
 
 app.config['SECRET_KEY'] = os.urandom(24)
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # スクリプトのあるディレクトリを取得
-POST_UPLOAD_FOLDER = os.path.join(BASE_DIR, 'images/post_images/')
+# BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # スクリプトのあるディレクトリを取得
+BASE_IMAGES_DIR = os.path.join(os.getcwd(), "images") # 画像フォルダのベースディレクトリ
+POST_UPLOAD_FOLDER = os.path.join(BASE_IMAGES_DIR, 'post_images/')
 
 DEFAULT_ICON_PATH = "icon_images/face-icon.svg"  # デフォルトアイコンのパス
 DEFAULT_POST_IMAGE_PATH = 'post_images/no-image-icon.svg'  # デフォルト採集記録画像のパス
-
-BASE_IMAGES_DIR = os.path.join(os.getcwd(), "images") # 画像フォルダのベースディレクトリ
-
 
 SessionLocal = sessionmaker(bind=engine)
 
@@ -601,14 +599,17 @@ def save_images(files, post_id, session):
         os.makedirs(POST_UPLOAD_FOLDER, exist_ok=True)
         file.save(file_path)
 
+        # 相対パスを取得
+        relative_path = os.path.relpath(file_path, BASE_IMAGES_DIR)  # BASE_IMAGES_DIRからの相対パス
+
         # position を追加
         image_data = {
             "post_id": post_id,
-            "image_url": file_path,
+            "image_url": relative_path,  # 相対パスを保存
             "position": position
         }
         session.execute(insert(mymodels.Images).values(image_data))
-        
+
         # 次のファイルのために position をインクリメント
         position += 1
 
