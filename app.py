@@ -698,18 +698,26 @@ def insert_species_info(data, post_id, session):
         "": None,  # 未選択は None にする
     }
 
+    # for species in species_list:
+    #     raw_gender = species.get("gender")  # フロントエンドから受け取った生データ
+    #     gender = gender_mapping.get(raw_gender, None)  # 性別を変換
+        
+    #     # デバッグ用のログを追加
+    #     print(f"Species data received: {species}")
+    #     print(f"Raw gender: {raw_gender}, Mapped gender: {gender}")
+    #     # species_id を取得
+    #     species_id = species_mapping.get(species.get("type"), 8)  # 見つからない場合は "その他" (ID: 8)
+        
+    #     # gender を変換
+    #     gender = gender_mapping.get(species.get("gender"), None)
     for species in species_list:
-        raw_gender = species.get("gender")  # フロントエンドから受け取った生データ
-        gender = gender_mapping.get(raw_gender, None)  # 性別を変換
-        
-        # デバッグ用のログを追加
-        print(f"Species data received: {species}")
-        print(f"Raw gender: {raw_gender}, Mapped gender: {gender}")
-        # species_id を取得
-        species_id = species_mapping.get(species.get("type"), 8)  # 見つからない場合は "その他" (ID: 8)
-        
-        # gender を変換
-        gender = gender_mapping.get(species.get("gender"), None)
+        raw_gender = species.get("gender")
+        print(f"Received gender: {raw_gender}")  # フロントエンドからの性別データを確認
+        gender = gender_mapping.get(raw_gender.strip(), None)  # 空白を削除してからマッピング
+
+        print(f"Mapped gender: {gender}")  # マッピング結果を確認
+
+        species_id = species_mapping.get(species.get("type"), 8)
 
         # 挿入データの構築
         species_data = {
