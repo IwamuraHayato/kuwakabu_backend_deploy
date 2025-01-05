@@ -565,6 +565,18 @@ def create_post():
 
             # SpeciesInfo テーブルへの挿入
             insert_species_info(data, post_id, session)
+            
+            # MethodInfo テーブルへの挿入
+            insert_method_info(data, post_id, session)
+            
+            # facilityInfo テーブルへの挿入
+            insert_facility_info(data, post_id, session)
+            
+            # dangerousInfo テーブルへの挿入
+            insert_dangerous_species_info(data, post_id, session)
+            
+            # treeInfo テーブルへの挿入
+            insert_trees_info(data, post_id, session)
 
         return jsonify({"message": "投稿が成功しました！"}), 201
 
@@ -744,3 +756,58 @@ def insert_environment(data, post_id, session):
         "free_memo": data.get("memo", ""),  # メモ
     }
     session.execute(insert(mymodels.Environment).values(environment_data))
+
+def insert_method_info(data, post_id, session):
+    """MethodInfo テーブルへのデータ挿入"""
+    method_id = data.get("collectionMethod")
+    method_other = data.get("collectionMethodOther") if method_id == "7" else None
+
+    # データ挿入
+    method_data = {
+        "post_id": post_id,
+        "method_id": int(method_id),
+        "method_other": method_other,  # 「その他」の場合に自由入力値を保存
+    }
+
+    session.execute(insert(mymodels.MethodInfo).values(method_data))
+
+def insert_trees_info(data, post_id, session):
+    """TreesInfo テーブルへのデータ挿入"""
+    trees_info = json.loads(data.get("trees_info", "[]"))  # JSON をデコード
+    for tree in trees_info:
+        tree_data = {
+            "post_id": post_id,
+            "tree_id": int(tree.get("id")),  # 選択した樹木のID
+            "tree_other": tree.get("other", None),  # その他の場合の詳細
+        }
+        session.execute(insert(mymodels.TreeInfo).values(tree_data))
+
+
+def insert_dangerous_species_info(data, post_id, session):
+    """DangerousSpeciesInfo テーブルへのデータ挿入"""
+    dangerous_species_info = json.loads(data.get("dangerous_species_info", "[]"))  # JSON をデコード
+    for species in dangerous_species_info:
+        dangerous_species_data = {
+            "post_id": post_id,
+            "dangerous_species_id": int(species.get("id")),  # 危険動物のID
+            "dangerous_species_other": species.get("other"),  # その他の場合の詳細
+        }
+        session.execute(insert(mymodels.DangerousSpeciesInfo).values(dangerous_species_data))
+
+def insert_facility_info(data, post_id, session):
+    """FacilityInfo テーブルへのデータ挿入"""
+    facility_info = json.loads(data.get("facility_info", "[]"))  # JSON をデコード
+    
+    # facility_info が空の場合は何もしない
+    if not facility_info:
+        print("No facility_info data provided.")
+        return
+    
+    for facility in facility_info:
+        facility_data = {
+            "post_id": post_id,
+            "facility_id": int(facility.get("id")),  # 選択した施設のID
+            "facility_other": facility.get("other")  # その他の場合の詳細
+        }
+
+        session.execute(insert(mymodels.FacilityInfo).values(facility_data))
