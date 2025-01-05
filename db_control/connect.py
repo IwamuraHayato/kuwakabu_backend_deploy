@@ -38,6 +38,7 @@ engine = create_engine(
     connect_args={
         "ssl": {
             "ca": SSL_CERT_PATH,  # SSL証明書のパスを指定
-        }
+        },
+        "charset": "utf8mb4"  # 文字セットをUTF-8に設定
     }
 )

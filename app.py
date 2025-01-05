@@ -767,6 +767,7 @@ def insert_method_info(data, post_id, session):
         "post_id": post_id,
         "method_id": int(method_id),
         "method_other": method_other,  # 「その他」の場合に自由入力値を保存
+        ##"method_other": ("method_other", "")  # その他
     }
 
     session.execute(insert(mymodels.MethodInfo).values(method_data))
