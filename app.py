@@ -15,6 +15,11 @@ from sqlalchemy.types import String
 from sqlalchemy.exc import SQLAlchemyError
 import uuid
 import urllib.parse
+from azure.storage.blob import BlobServiceClient
+from dotenv import load_dotenv
+
+# .env.local ファイルを読み込む
+load_dotenv('.env.local')
 
 app = Flask(__name__)
 CORS(app)
@@ -39,53 +44,55 @@ def index():
     return "<p>Flask top page!</p>"
 
 ###############################
+# （画像ファイルをフロントエンドとバックエンドで受け渡しする場合）
 # /mapと/post/[id]で使用する静的ファイル（画像）を受け渡すエンドポイント
 ###############################
-@app.route('/static/images/<path:filename>')
-def serve_static_images(filename):
-    """
-    指定された画像ファイルを返すエンドポイント。
-    ファイルが存在しない場合はデフォルト画像を返す。
-    """
-    requested_path = os.path.join(BASE_IMAGES_DIR, filename)
-    if os.path.isfile(requested_path):
-        return send_from_directory(BASE_IMAGES_DIR, filename)
-    else:
-        # ファイルが存在しない場合、デフォルト画像を返す
-        if "icon_images" in filename:
-            return send_from_directory(BASE_IMAGES_DIR, DEFAULT_ICON_PATH)
-        elif "post_images" in filename:
-            return send_from_directory(BASE_IMAGES_DIR, DEFAULT_POST_IMAGE_PATH)
-        abort(404)
+# @app.route('/static/images/<path:filename>')
+# def serve_static_images(filename):
+#     """
+#     指定された画像ファイルを返すエンドポイント。
+#     ファイルが存在しない場合はデフォルト画像を返す。
+#     """
+#     requested_path = os.path.join(BASE_IMAGES_DIR, filename)
+#     if os.path.isfile(requested_path):
+#         return send_from_directory(BASE_IMAGES_DIR, filename)
+#     else:
+#         # ファイルが存在しない場合、デフォルト画像を返す
+#         if "icon_images" in filename:
+#             return send_from_directory(BASE_IMAGES_DIR, DEFAULT_ICON_PATH)
+#         elif "post_images" in filename:
+#             return send_from_directory(BASE_IMAGES_DIR, DEFAULT_POST_IMAGE_PATH)
+#         abort(404)
 
 
 ###############################
+# （画像ファイルをフロントエンドとバックエンドで受け渡しする場合）
 # /mypageで使用する画像を受け渡すエンドポイント
 ###############################
-# カレントディレクトリを取得
-BASE_DIR = os.getcwd()
-# 画像を提供するエンドポイント
-@app.route('/images/<folder>/<path:filename>')
-def serve_images(folder, filename):
-    """
-    images ディレクトリ内の任意のサブフォルダに対してアクセスを許可。
-    サブフォルダ名: icon_images, post_images
-    """
-    allowed_folders = ['icon_images', 'post_images']
+# # カレントディレクトリを取得
+# BASE_DIR = os.getcwd()
+# # 画像を提供するエンドポイント
+# @app.route('/images/<folder>/<path:filename>')
+# def serve_images(folder, filename):
+#     """
+#     images ディレクトリ内の任意のサブフォルダに対してアクセスを許可。
+#     サブフォルダ名: icon_images, post_images
+#     """
+#     allowed_folders = ['icon_images', 'post_images']
 
-    if folder not in allowed_folders:
-        abort(403, description="Access to this directory is not allowed.")
+#     if folder not in allowed_folders:
+#         abort(403, description="Access to this directory is not allowed.")
 
-    images_dir = os.path.join(BASE_DIR, 'images', folder)
-    requested_file_path = os.path.join(images_dir, filename)
+#     images_dir = os.path.join(BASE_DIR, 'images', folder)
+#     requested_file_path = os.path.join(images_dir, filename)
 
-    if not os.path.isfile(requested_file_path):
-        abort(404, description="Image not found.")
+#     if not os.path.isfile(requested_file_path):
+#         abort(404, description="Image not found.")
 
-    return send_from_directory(images_dir, filename)
+#     return send_from_directory(images_dir, filename)
 
-if __name__ == '__main__':
-    app.run(debug=True)
+# if __name__ == '__main__':
+#     app.run(debug=True)
 
 ###############################
 # ユーザー登録
@@ -296,9 +303,11 @@ def get_post_details(post_id):
             "species_names": list(set([r[2] for r in result if r[2]])),
             "user": {
                 "name": user.name if user else "匿名",
-                "icon": f"/static/images/{user.icon}" if user and user.icon else f"/static/images{DEFAULT_ICON_PATH}",
+                # "icon": f"/static/images/{user.icon}" if user and user.icon else f"/static/images{DEFAULT_ICON_PATH}",
+                "icon": f"{user.icon}" if user and user.icon else f"/static/images{DEFAULT_ICON_PATH}",
             },
-            "image_url": f"/static/images/{image_url}" if image_url else f"/static/images{DEFAULT_POST_IMAGE_PATH}"
+            # "image_url": f"/static/images/{image_url}" if image_url else f"/static/images{DEFAULT_POST_IMAGE_PATH}"
+            "image_url": f"{image_url}" if image_url else f"/static/images{DEFAULT_POST_IMAGE_PATH}"
         }
 
         return jsonify(response)
@@ -488,14 +497,16 @@ def get_post(post_id):
         # 投稿画像のリストを作成
         post_images = [
             {
-                "url": f"/static/images/{image.image_url}" if image.image_url else f"/static/images/{DEFAULT_POST_IMAGE_PATH}",
+                # "url": f"/static/images/{image.image_url}" if image.image_url else f"/static/images/{DEFAULT_POST_IMAGE_PATH}",
+                "url": f"{image.image_url}" if image.image_url else f"/static/images/{DEFAULT_POST_IMAGE_PATH}",
                 "position": image.position
             }
             for image in images
         ]
 
         # ユーザーアイコンの処理
-        user_icon = f"/static/images/{post.user_icon}" if post.user_icon else f"/static/images/{DEFAULT_ICON_PATH}"
+        # user_icon = f"/static/images/{post.user_icon}" if post.user_icon else f"/static/images/{DEFAULT_ICON_PATH}"
+        user_icon = f"{post.user_icon}" if post.user_icon else f"/static/images/{DEFAULT_ICON_PATH}"
 
         # レスポンスを作成
         response = {
@@ -539,6 +550,12 @@ def get_post(post_id):
 ###############################
 # 採集記録の投稿
 ###############################
+
+# Azure Blob Storageの接続設定
+ACCOUNT_NAME = os.getenv('AZURE_STORAGE_ACCOUNT_NAME')
+ACCOUNT_KEY = os.getenv('AZURE_STORAGE_ACCOUNT_KEY')
+CONTAINER_NAME = "post-images"
+
 @app.route("/api/posts", methods=["POST"])
 def create_post():
     data = request.form
@@ -602,29 +619,37 @@ def insert_post(data, session):
 
 
 def save_images(files, post_id, session):
+    # BlobServiceClientの初期化
+    blob_service_client = BlobServiceClient(
+        f"https://{ACCOUNT_NAME}.blob.core.windows.net",
+        credential=ACCOUNT_KEY
+    )
     """Images テーブルへのデータ挿入"""
     position = 1  # position を初期化
     for key in files:
         file = files[key]
         unique_filename = f"{uuid.uuid4()}_{file.filename}"
-        file_path = os.path.join(POST_UPLOAD_FOLDER, unique_filename)
-        os.makedirs(POST_UPLOAD_FOLDER, exist_ok=True)
-        file.save(file_path)
+        try:
+            # BlobClientの取得
+            blob_client = blob_service_client.get_blob_client(container=CONTAINER_NAME, blob=unique_filename)
+            
+            # ファイルをBlob Storageにアップロード
+            blob_client.upload_blob(file, overwrite=True)
+            print(f"File uploaded to Azure Blob Storage: {unique_filename}")
 
-        # 相対パスを取得
-        relative_path = os.path.relpath(file_path, BASE_IMAGES_DIR)  # BASE_IMAGES_DIRからの相対パス
-
-        # position を追加
-        image_data = {
-            "post_id": post_id,
-            "image_url": relative_path,  # 相対パスを保存
-            "position": position
-        }
-        session.execute(insert(mymodels.Images).values(image_data))
-
-        # 次のファイルのために position をインクリメント
-        position += 1
-
+            # Azure Blob StorageのURLを生成
+            blob_url = f"https://{ACCOUNT_NAME}.blob.core.windows.net/{CONTAINER_NAME}/{unique_filename}"
+            
+            image_data = {
+                "post_id": post_id,
+                "image_url": blob_url,  # 相対パスを保存
+                "position": position
+            }
+            session.execute(insert(mymodels.Images).values(image_data))
+            # 次のファイルのために position をインクリメント
+            position += 1
+        except Exception as e:
+            print(f"Error uploading to Azure Blob Storage: {e}")
 
 
 def insert_location(data, post_id, session):
@@ -737,8 +762,8 @@ def insert_species_info(data, post_id, session):
             "species_id": species_id,  # species_id を連携
             "species_other": None if species_id != 8 else species.get("type"),  # その他の場合にのみ詳細を保存
             "gender": gender,  # 性別 (変換後の値を保存)
-            "count": int(species.get("count") or 0),  # 採集数 (None の場合は 0)
-            "max_size": float(species.get("maxSize") or 0),  # 最大サイズ (None の場合は 0)
+            "count": int(species.get("count") or 0) if species.get("count") else 0,  # 採集数
+            "max_size": float(species.get("maxSize") or 0) if species.get("maxSize") else 0.0,  # 最大サイズ
         }
 
         # DB に挿入
@@ -762,12 +787,14 @@ def insert_method_info(data, post_id, session):
     method_id = data.get("collectionMethod")
     method_other = data.get("collectionMethodOther") if method_id == "7" else None
 
+    # method_id が空の場合のデフォルト値を設定
+    method_id = int(method_id) if method_id and method_id.isdigit() else None
+
     # データ挿入
     method_data = {
         "post_id": post_id,
-        "method_id": int(method_id),
-        "method_other": method_other,  # 「その他」の場合に自由入力値を保存
-        ##"method_other": ("method_other", "")  # その他
+        "method_id": method_id,  # 修正後のmethod_id
+        "method_other": method_other,
     }
 
     session.execute(insert(mymodels.MethodInfo).values(method_data))
@@ -799,16 +826,43 @@ def insert_facility_info(data, post_id, session):
     """FacilityInfo テーブルへのデータ挿入"""
     facility_info = json.loads(data.get("facility_info", "[]"))  # JSON をデコード
     
-    # facility_info が空の場合は何もしない
+    # facility_info が空リストの場合はレコードを作成せずに終了
     if not facility_info:
-        print("No facility_info data provided.")
         return
     
     for facility in facility_info:
+        # まずは raw の値を取得
+        raw_facility_id = facility.get("id")      # None または値
+        raw_facility_other = facility.get("other")  # None または値
+
+        # None なら "" (空文字) に置き換える、そうでなければ str() で文字列化
+        if raw_facility_id is None:
+            facility_id_str = ""
+        else:
+            facility_id_str = str(raw_facility_id)
+
+        if raw_facility_other is None:
+            facility_other_str = ""
+        else:
+            facility_other_str = str(raw_facility_other)
+
+        # 両方とも空白(または空文字列)ならスキップして次へ
+        if not facility_id_str.strip() and not facility_other_str.strip():
+            continue
+
+        # facility_id を安全に数値へ変換 (空や不正値は None)
+        if facility_id_str.strip().isdigit():
+            facility_id = int(facility_id_str.strip())
+        else:
+            facility_id = None
+
+        # facility_other も空文字なら None に
+        facility_other = facility_other_str.strip() or None
+
         facility_data = {
             "post_id": post_id,
-            "facility_id": int(facility.get("id")),  # 選択した施設のID
-            "facility_other": facility.get("other")  # その他の場合の詳細
+            "facility_id": facility_id,
+            "facility_other": facility_other
         }
 
         session.execute(insert(mymodels.FacilityInfo).values(facility_data))
